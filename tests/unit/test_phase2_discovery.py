@@ -9,7 +9,11 @@ from commercial_v1.qianchuan.contracts import (
     EBP_ADVERTISER_LIST,
     OAUTH_ADVERTISER_GET,
 )
-from commercial_v1.qianchuan.errors import OpenApiContractError, OpenApiResponseError
+from commercial_v1.qianchuan.errors import (
+    OpenApiContractError,
+    OpenApiResponseError,
+    OpenApiTokenError,
+)
 from commercial_v1.qianchuan.normalizers import normalize_final_advertiser, normalize_plan
 from commercial_v1.qianchuan.pagination import get_all_pages
 from commercial_v1.storage.database import Database, DatabaseConfig
@@ -117,6 +121,65 @@ def test_pagination_reads_all_pages_and_validates_total() -> None:
     )
     assert [row["id"] for row in rows] == ["1", "2", "3"]
     assert request_ids == ["r1", "r2"]
+
+
+def test_pagination_refreshes_token_at_most_once_and_retries_current_page() -> None:
+    calls = []
+    refresh_calls = []
+
+    class Client:
+        def get(self, endpoint, *, query=None, access_token, advertiser_id=""):
+            page = int((query or {}).get("page", 1))
+            calls.append((page, access_token))
+            if page == 1 and access_token == "old-token":
+                raise OpenApiTokenError("access_token expired", code="TOKEN_EXPIRED")
+            return _api(
+                {
+                    "list": [{"id": str(page)}],
+                    "page_info": {"page_size": 1, "total_number": 2},
+                },
+                f"r{page}",
+            )
+
+    def refresh():
+        refresh_calls.append(True)
+        return "new-token"
+
+    rows, request_ids = get_all_pages(
+        Client(),  # type: ignore[arg-type]
+        "/open_api/test/",
+        query={},
+        access_token="old-token",
+        page_size=1,
+        identity_getter=lambda row: row["id"],
+        refresh_access_token=refresh,
+    )
+    assert [row["id"] for row in rows] == ["1", "2"]
+    assert request_ids == ["r1", "r2"]
+    assert refresh_calls == [True]
+    assert calls == [(1, "old-token"), (1, "new-token"), (2, "new-token")]
+
+
+def test_pagination_does_not_refresh_repeatedly_after_new_token_fails() -> None:
+    refresh_calls = []
+
+    class Client:
+        def get(self, endpoint, *, query=None, access_token, advertiser_id=""):
+            raise OpenApiTokenError("still expired", code="TOKEN_EXPIRED")
+
+    def refresh():
+        refresh_calls.append(True)
+        return "new-token"
+
+    with pytest.raises(OpenApiTokenError):
+        get_all_pages(
+            Client(),  # type: ignore[arg-type]
+            "/open_api/test/",
+            query={},
+            access_token="old-token",
+            refresh_access_token=refresh,
+        )
+    assert refresh_calls == [True]
 
 
 def test_ebp_final_identity_never_falls_back_to_oauth_style_id() -> None:
