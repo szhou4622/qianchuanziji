@@ -14,6 +14,10 @@ def _new_db(tmp_path: Path):
     return conn
 
 
+def _columns(conn: sqlite3.Connection, table: str) -> dict[str, str]:
+    return {str(row[1]): str(row[2]).upper() for row in conn.execute(f"PRAGMA table_info({table})")}
+
+
 def test_schema_v1_creates_all_required_tables(tmp_path: Path) -> None:
     conn = _new_db(tmp_path)
     try:
@@ -22,6 +26,20 @@ def test_schema_v1_creates_all_required_tables(tmp_path: Path) -> None:
         assert REQUIRED_TABLES <= names
         assert "product_identity" not in names
         assert "product_material_relation" not in names
+    finally:
+        conn.close()
+
+
+def test_discovered_accounts_are_disabled_by_default(tmp_path: Path) -> None:
+    conn = _new_db(tmp_path)
+    try:
+        now = "2026-08-30T00:00:00Z"
+        conn.execute(
+            "INSERT INTO qianchuan_account(account_uid,advertiser_id,auth_status,created_at,updated_at) VALUES(?,?,?,?,?)",
+            ("acc", "adv", "ACTIVE", now, now),
+        )
+        row = conn.execute("SELECT enabled FROM qianchuan_account WHERE account_uid='acc'").fetchone()
+        assert row[0] == 0
     finally:
         conn.close()
 
@@ -39,6 +57,47 @@ def test_same_material_id_can_exist_in_two_plans(tmp_path: Path) -> None:
         conn.close()
 
 
+def test_financial_columns_use_decimal_text_not_unproven_cent_units(tmp_path: Path) -> None:
+    conn = _new_db(tmp_path)
+    try:
+        expected_text_columns = {
+            "monitor_plan": {"budget_decimal"},
+            "material_latest": {
+                "overall_cost_decimal",
+                "net_settle_amount_decimal",
+                "net_settle_roi_decimal",
+                "overall_gmv_decimal",
+                "overall_pay_roi_decimal",
+            },
+            "material_5m": {
+                "overall_cost_decimal",
+                "net_settle_amount_decimal",
+                "net_settle_roi_decimal",
+                "overall_gmv_decimal",
+                "overall_pay_roi_decimal",
+            },
+            "control_task_latest": {
+                "budget_decimal",
+                "duration_decimal",
+                "bid_decimal",
+                "roi_goal_decimal",
+                "assist_cost_decimal",
+                "assist_gmv_decimal",
+                "assist_pay_roi_decimal",
+                "assist_net_amount_decimal",
+                "assist_net_roi_decimal",
+            },
+        }
+        for table, expected in expected_text_columns.items():
+            columns = _columns(conn, table)
+            for column in expected:
+                assert columns[column] == "TEXT"
+            unsafe = [name for name in columns if name.endswith("_cent")]
+            assert unsafe == [], f"{table} still contains unproven cent columns: {unsafe}"
+    finally:
+        conn.close()
+
+
 def test_metric_columns_default_to_null_not_zero(tmp_path: Path) -> None:
     conn = _new_db(tmp_path)
     try:
@@ -48,7 +107,7 @@ def test_metric_columns_default_to_null_not_zero(tmp_path: Path) -> None:
         conn.execute("INSERT INTO collection_batch(batch_id,account_uid,target_uid,advertiser_id,ad_id,pipeline_type,started_at,status,created_at) VALUES(?,?,?,?,?,?,?,?,?)", ("batch","acc","target","adv","plan","MATERIAL",now,"SUCCESS",now))
         conn.execute("INSERT INTO material_registry(material_uid,advertiser_id,ad_id,material_id,first_seen_at,last_seen_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)", ("m","adv","plan","material",now,now,now,now))
         conn.execute("INSERT INTO material_latest(material_uid,advertiser_id,ad_id,material_id,stat_date,collected_at,batch_id,sync_state,strategy_eligible,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)", ("m","adv","plan","material","2026-08-30",now,"batch","FRESH",0,now))
-        row = conn.execute("SELECT overall_cost_cent,net_settle_roi,overall_order_count FROM material_latest WHERE material_uid='m'").fetchone()
+        row = conn.execute("SELECT overall_cost_decimal,net_settle_roi_decimal,overall_order_count FROM material_latest WHERE material_uid='m'").fetchone()
         assert tuple(row) == (None, None, None)
     finally:
         conn.close()
