@@ -14,6 +14,22 @@ GiB = 1024 ** 3
 DiskUsageFn = Callable[[Path], tuple[int, int, int]]
 FileSizeFn = Callable[[Path], int]
 
+REQUIRED_INDEXES = frozenset(
+    {
+        "ux_qianchuan_account_auth_primary",
+        "idx_monitor_plan_account_state",
+        "idx_collection_target_pipeline_time",
+        "idx_collection_status_time",
+        "idx_material_5m_object_time",
+        "idx_material_daily_plan_date",
+        "idx_control_5m_task_time",
+        "idx_execution_status_created",
+        "idx_execution_object",
+        "idx_reconciliation_due",
+        "idx_job_claim",
+    }
+)
+
 
 @dataclass(frozen=True)
 class DatabaseHealth:
@@ -62,13 +78,52 @@ class DatabaseHealthService:
                     reasons.append("DB_SCHEMA_NEWER_THAN_APP")
                 elif version < self._supported:
                     reasons.append("DB_MIGRATION_REQUIRED")
-                missing = REQUIRED_TABLES - table_names(conn)
-                if missing:
+
+                missing_tables = REQUIRED_TABLES - table_names(conn)
+                if missing_tables:
                     reasons.append("DB_REQUIRED_TABLE_MISSING")
+
+                index_names = {
+                    str(row[0])
+                    for row in conn.execute(
+                        "SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'"
+                    ).fetchall()
+                }
+                if REQUIRED_INDEXES - index_names:
+                    reasons.append("DB_REQUIRED_INDEX_MISSING")
+
+                try:
+                    migration_row = conn.execute(
+                        "SELECT 1 FROM schema_migration_log WHERE status='RUNNING' LIMIT 1"
+                    ).fetchone()
+                    if migration_row is not None:
+                        reasons.append("DB_MIGRATION_INCOMPLETE")
+                except sqlite3.Error:
+                    # schema 表缺失会由上面的必需表检查阻断。
+                    pass
         except (sqlite3.Error, OSError):
             reasons.append("DB_OPEN_FAILED")
 
-        blocking = {"DB_INTEGRITY_FAILED", "DB_SCHEMA_MISSING", "DB_SCHEMA_NEWER_THAN_APP", "DB_MIGRATION_REQUIRED", "DB_REQUIRED_TABLE_MISSING", "DB_OPEN_FAILED"}
+        # 在正式业务启动前证明数据库仍能获得写事务。只 BEGIN/ROLLBACK，不写业务数据。
+        if not any(reason.startswith("DB_SCHEMA") or reason in {"DB_OPEN_FAILED", "DB_REQUIRED_TABLE_MISSING"} for reason in reasons):
+            try:
+                with self._database.connect() as write_conn:
+                    write_conn.execute("BEGIN IMMEDIATE")
+                    write_conn.rollback()
+            except (sqlite3.Error, OSError):
+                reasons.append("DB_WRITE_PROBE_FAILED")
+
+        blocking = {
+            "DB_INTEGRITY_FAILED",
+            "DB_SCHEMA_MISSING",
+            "DB_SCHEMA_NEWER_THAN_APP",
+            "DB_MIGRATION_REQUIRED",
+            "DB_REQUIRED_TABLE_MISSING",
+            "DB_REQUIRED_INDEX_MISSING",
+            "DB_MIGRATION_INCOMPLETE",
+            "DB_OPEN_FAILED",
+            "DB_WRITE_PROBE_FAILED",
+        }
         if any(reason in blocking for reason in reasons):
             return DatabaseHealth("BLOCKED", False, tuple(dict.fromkeys(reasons)), version, quick, db_bytes, wal_bytes, total, free, ratio)
 
