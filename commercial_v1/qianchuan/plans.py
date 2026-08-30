@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, replace
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 
@@ -13,9 +13,9 @@ from commercial_v1.security.redaction import sanitize_text
 from commercial_v1.storage.database import Database
 from commercial_v1.storage.writer import StorageWriter
 
-from .client import OpenApiClient
+from .client import ApiResponse, OpenApiClient
 from .contracts import PLAN_DETAIL, PLAN_LIST
-from .errors import OpenApiContractError
+from .errors import OpenApiContractError, OpenApiTokenError
 from .normalizers import NormalizedPlan, normalize_plan, require_digit_id
 from .pagination import get_all_pages
 from .token_provider import OAuthTokenProvider
@@ -66,6 +66,31 @@ class PlanCatalogService:
         self._client = client
         self._tokens = token_provider
 
+    def _get_with_refresh(
+        self,
+        auth_profile_id: str,
+        endpoint: str,
+        *,
+        query: Mapping[str, Any],
+        advertiser_id: str,
+    ) -> ApiResponse:
+        token = self._tokens.get_access_token(auth_profile_id)
+        try:
+            return self._client.get(
+                endpoint,
+                query=query,
+                access_token=token,
+                advertiser_id=advertiser_id,
+            )
+        except OpenApiTokenError:
+            refreshed = self._tokens.get_access_token(auth_profile_id, force_refresh=True)
+            return self._client.get(
+                endpoint,
+                query=query,
+                access_token=refreshed,
+                advertiser_id=advertiser_id,
+            )
+
     def list_all(
         self,
         auth_profile_id: str,
@@ -76,7 +101,6 @@ class PlanCatalogService:
         lookback_days: int = 180,
     ) -> PlanCatalogResult:
         aid = require_digit_id(advertiser_id, "advertiser_id")
-        access_token = self._tokens.get_access_token(auth_profile_id)
         if not start_time or not end_time:
             start_time, end_time = _catalog_window(lookback_days=lookback_days)
 
@@ -100,10 +124,14 @@ class PlanCatalogService:
                         "marketing_goal": marketing_goal,
                         "adlab_scene": adlab_scene,
                     },
-                    access_token=access_token,
+                    access_token=self._tokens.get_access_token(auth_profile_id),
                     advertiser_id=aid,
                     page_size=100,
                     identity_getter=_plan_identity,
+                    refresh_access_token=lambda: self._tokens.get_access_token(
+                        auth_profile_id,
+                        force_refresh=True,
+                    ),
                 )
                 normalized = [
                     normalize_plan(
@@ -166,11 +194,10 @@ class PlanCatalogService:
     ) -> tuple[NormalizedPlan, str]:
         aid = require_digit_id(advertiser_id, "advertiser_id")
         pid = require_digit_id(ad_id, "ad_id")
-        token = self._tokens.get_access_token(auth_profile_id)
-        response = self._client.get(
+        response = self._get_with_refresh(
+            auth_profile_id,
             PLAN_DETAIL,
             query={"advertiser_id": aid, "ad_id": pid},
-            access_token=token,
             advertiser_id=aid,
         )
         if not isinstance(response.data, Mapping):
