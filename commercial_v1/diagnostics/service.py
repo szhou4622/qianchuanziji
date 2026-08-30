@@ -1,10 +1,9 @@
 """结构化诊断快照。
 
-Phase 1 只提供后端 dict；阶段 7 再接完整 UI。所有输出最后经过统一 redact。
+诊断只读取本地事实，不自行推断千川业务状态。所有输出最后经过统一 redact。
 """
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Any
 
 from commercial_v1.license.runtime_state import LicenseRuntimeStateStore
@@ -59,6 +58,47 @@ class DiagnosticsService:
                 ).fetchone()[0]
             )
 
+            active_collecting = int(
+                conn.execute(
+                    """SELECT COUNT(*) FROM monitor_plan
+                       WHERE monitor_enabled=1 AND lifecycle_state='ACTIVE_COLLECTING'
+                         AND collection_active=1 AND official_status='DELIVERY_OK'"""
+                ).fetchone()[0]
+            )
+            material_latest = int(conn.execute("SELECT COUNT(*) FROM material_latest").fetchone()[0])
+            control_latest = int(conn.execute("SELECT COUNT(*) FROM control_task_latest").fetchone()[0])
+            material_untrusted = int(
+                conn.execute(
+                    """SELECT COUNT(*) FROM material_latest
+                       WHERE sync_state IN('SUSPICIOUS_EMPTY','MISSING_REQUIRES_CONFIRMATION')"""
+                ).fetchone()[0]
+            )
+            control_untrusted = int(
+                conn.execute(
+                    """SELECT COUNT(*) FROM control_task_latest
+                       WHERE sync_state IN('SUSPICIOUS_EMPTY','MISSING_REQUIRES_CONFIRMATION')"""
+                ).fetchone()[0]
+            )
+            hot_queue = {
+                str(row["job_type"]): int(row["n"])
+                for row in conn.execute(
+                    """SELECT job_type,COUNT(*) AS n FROM background_job
+                       WHERE status IN('QUEUED','RUNNING')
+                         AND job_type IN('MATERIAL_5M','CONTROL_5M','MATERIAL_CONFIRM','CONTROL_CONFIRM')
+                       GROUP BY job_type"""
+                ).fetchall()
+            }
+            last_batches: dict[str, dict[str, Any] | None] = {}
+            for pipeline in ("MATERIAL_5M","CONTROL_5M","MATERIAL_CONFIRM","CONTROL_CONFIRM"):
+                row = conn.execute(
+                    """SELECT batch_id,target_uid,advertiser_id,ad_id,status,scheduled_at,started_at,finished_at,
+                              raw_row_count,unique_row_count,error_type,error_code
+                       FROM collection_batch WHERE pipeline_type=?
+                       ORDER BY started_at DESC LIMIT 1""",
+                    (pipeline,),
+                ).fetchone()
+                last_batches[pipeline] = dict(row) if row else None
+
         result: dict[str, Any] = {
             "app_version": self._app_version,
             "schema_version": db_health.schema_version,
@@ -77,6 +117,7 @@ class DiagnosticsService:
             "jobs": {
                 "queue_counts": self._jobs.queue_counts(),
                 "active_leases": active_leases,
+                "hot_queue_by_type": hot_queue,
             },
             "license_runtime": {
                 "status": license_state.status,
@@ -85,6 +126,14 @@ class DiagnosticsService:
                 "first_network_failure_at": license_state.first_network_failure_at,
                 "network_grace_until": license_state.network_grace_until,
                 "last_error_code": license_state.last_error_code,
+            },
+            "hot_collection": {
+                "active_collecting_plans": active_collecting,
+                "material_latest_rows": material_latest,
+                "control_latest_rows": control_latest,
+                "material_untrusted_rows": material_untrusted,
+                "control_untrusted_rows": control_untrusted,
+                "last_batches": last_batches,
             },
             "unresolved_executions": unresolved,
             "last_migration": dict(migration) if migration else None,
