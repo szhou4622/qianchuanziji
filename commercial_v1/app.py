@@ -215,9 +215,11 @@ class CommercialApplication:
                     critical=True,
                 )
             )
+            # `job_worker` 是 Phase 2 已对外暴露的诊断组件名。Phase 3 继续沿用，
+            # 避免升级后打破既有诊断/测试契约；其职责仍是 WATCHING 状态检查。
             supervisor.register(
                 ComponentSpec(
-                    name="plan_state_worker",
+                    name="job_worker",
                     start=job_worker.start,
                     stop=job_worker.stop,
                     health=job_worker.health_snapshot,
