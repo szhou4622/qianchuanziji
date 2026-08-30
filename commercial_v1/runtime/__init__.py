@@ -2,6 +2,7 @@
 
 from .jobs import ClaimedJob, PersistentJobStore, StaleJobFencingToken
 from .leases import Lease, LeaseConflict, LeaseManager, StaleFencingToken
+from .recovery import DEFAULT_RECOVERY_POLICY, StartupRecoveryReport, StartupRecoveryService
 from .single_instance import GlobalUserMutex
 from .supervisor import ComponentSpec, RuntimeSupervisor, RuntimeWatchdog
 
@@ -13,6 +14,9 @@ __all__ = [
     "LeaseConflict",
     "LeaseManager",
     "StaleFencingToken",
+    "DEFAULT_RECOVERY_POLICY",
+    "StartupRecoveryReport",
+    "StartupRecoveryService",
     "GlobalUserMutex",
     "ComponentSpec",
     "RuntimeSupervisor",
