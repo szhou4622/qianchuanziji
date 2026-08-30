@@ -18,19 +18,9 @@ def _sensitive_key(key: object) -> bool:
     return any(fragment in normalized for fragment in SENSITIVE_KEY_FRAGMENTS)
 
 
-def redact(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return {str(key): REDACTED if _sensitive_key(key) else redact(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [redact(item) for item in value]
-    if isinstance(value, tuple):
-        return tuple(redact(item) for item in value)
-    return value
-
-
 _PATTERNS = [
     re.compile(r"(?i)(authorization\s*[:=]\s*bearer\s+)[^\s,;]+"),
-    re.compile(r"(?i)((?:access_token|refresh_token|app_secret|device_credential|activation_code|password)\s*[:=]\s*)[^\s,;&]+"),
+    re.compile(r"(?i)((?:access_token|refresh_token|app_secret|device_credential|device_session|activation_code|license_code|password)\s*[:=]\s*)[^\s,;&]+"),
 ]
 
 
@@ -39,3 +29,16 @@ def sanitize_text(text: object) -> str:
     for pattern in _PATTERNS:
         result = pattern.sub(lambda m: m.group(1) + REDACTED, result)
     return result
+
+
+def redact(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {str(key): REDACTED if _sensitive_key(key) else redact(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [redact(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(redact(item) for item in value)
+    if isinstance(value, str):
+        # Diagnostics/异常字段即使 key 本身不敏感，也不能泄漏嵌入在文本中的凭证。
+        return sanitize_text(value)
+    return value
