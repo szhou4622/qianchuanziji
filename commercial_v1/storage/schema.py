@@ -92,11 +92,16 @@ REQUIRED_TABLES = frozenset({
 })
 
 
-def create_schema_v1(conn: sqlite3.Connection, *, app_version: str = "0.1.0") -> None:
+def create_schema_v1(conn: sqlite3.Connection, *, app_version: str = "0.1.0", schema_sql: str | None = None) -> None:
+    """在一个事务中创建完整 V1 Schema。
+
+    sqlite3.executescript() 会先结束调用方已有事务，所以 BEGIN 必须放在 script
+    自身内部。schema_sql 只用于故障注入测试。
+    """
     now = _now()
-    conn.execute("BEGIN")
+    sql = SCHEMA_V1_SQL if schema_sql is None else schema_sql
     try:
-        conn.executescript(SCHEMA_V1_SQL)
+        conn.executescript("BEGIN IMMEDIATE;\n" + sql)
         conn.execute("INSERT OR REPLACE INTO schema_meta(key,value,updated_at) VALUES(?,?,?)",("schema_version",str(SCHEMA_VERSION),now))
         conn.execute("INSERT OR IGNORE INTO schema_meta(key,value,updated_at) VALUES(?,?,?)",("created_by_app_version",app_version,now))
         conn.execute("INSERT OR IGNORE INTO schema_meta(key,value,updated_at) VALUES(?,?,?)",("last_migrated_at",now,now))
