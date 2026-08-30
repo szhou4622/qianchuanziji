@@ -1,8 +1,8 @@
 """千川商业版 V1 本地 Runtime 入口。
 
-Phase 4 在 Phase 3 可信热采集后接入独立本地策略 Worker：只有可信 SUCCESS 批次才会
-排入确定性策略求值；策略层仍不创建候选、不发飞书、不调用任何千川投放业务 POST。
-应用启动本身不访问千川网络。
+Phase 4 在 Phase 3 可信热采集后接入独立本地策略 Worker：只有可信 SUCCESS 批次且该计划
+确有启用策略时，才会排入确定性策略求值；策略层仍不创建候选、不发飞书、不调用任何
+千川投放业务 POST。应用启动本身不访问千川网络。
 """
 from __future__ import annotations
 
@@ -165,7 +165,7 @@ class CommercialApplication:
 
             strategy_store = StrategyStore(database, writer)
             strategy_evaluation = StrategyEvaluationService(database, writer, strategy_store)
-            strategy_enqueuer = StrategyEvaluationEnqueuer(jobs)
+            strategy_enqueuer = StrategyEvaluationEnqueuer(jobs, strategy_store)
 
             def business_allowed() -> bool:
                 return license_state.get().normal_business_allowed
