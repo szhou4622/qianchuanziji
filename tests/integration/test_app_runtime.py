@@ -3,7 +3,13 @@ from pathlib import Path
 import pytest
 
 from commercial_v1.app import CommercialApplication, RuntimeBlockedError
-from commercial_v1.qianchuan import CONTROL_5M, MATERIAL_5M, PLAN_STATUS_CHECK
+from commercial_v1.qianchuan import (
+    CONTROL_5M,
+    CONTROL_CONFIRM,
+    MATERIAL_5M,
+    MATERIAL_CONFIRM,
+    PLAN_STATUS_CHECK,
+)
 from commercial_v1.storage.database import Database, DatabaseConfig
 from commercial_v1.storage.schema import create_schema_v1
 
@@ -39,7 +45,10 @@ def test_application_starts_fresh_database_and_exposes_phase3_services(tmp_path:
         assert app.material_hot_handler is not None
         assert app.control_hot_handler is not None
         assert app.hot_collection_scheduler is not None
-        assert len(app.hot_workers) == 2
+        assert app.hot_confirmation is not None
+        assert app.hot_confirmation_scheduler is not None
+        assert app.hot_account_gate is not None
+        assert len(app.hot_workers) == 6
 
         snapshot = app.diagnostics_snapshot()
         assert snapshot["schema_version"] == 1
@@ -47,22 +56,27 @@ def test_application_starts_fresh_database_and_exposes_phase3_services(tmp_path:
         assert snapshot["storage_writer"]["alive"] is True
         assert snapshot["startup_recovery"]["unresolved_execution_count"] == 0
         assert snapshot["license_runtime"]["status"] == "INVALID"
+        assert snapshot["hot_account_concurrency"]["max_per_advertiser"] == 2
 
         # `job_worker` 是 Phase 2 既有诊断契约，Phase 3 不允许破坏。
         assert PLAN_STATUS_CHECK in snapshot["runtime"]["components"]["job_worker"]["job_types"]
         assert "plan_state_scheduler" in snapshot["runtime"]["components"]
 
-        # Phase 3 热采集已接入 Runtime，但软件激活无效时 Scheduler 不产生任何网络 Job。
         hot_types = set()
-        for index in (1, 2):
+        for index in range(1, 7):
             component = snapshot["runtime"]["components"][f"hot_read_worker_{index}"]
             hot_types.update(component["job_types"])
-        assert {MATERIAL_5M, CONTROL_5M} <= hot_types
+        assert {MATERIAL_5M, CONTROL_5M, MATERIAL_CONFIRM, CONTROL_CONFIRM} <= hot_types
         assert "hot_collection_scheduler" in snapshot["runtime"]["components"]
+        assert "hot_confirmation_scheduler" in snapshot["runtime"]["components"]
+
+        # 未激活时三条 Scheduler 都不产生千川网络 Job。
         assert app.plan_state_scheduler.run_once() == 0
         assert app.hot_collection_scheduler.run_once()["enqueued"] == 0
+        assert app.hot_confirmation_scheduler.run_once() == 0
         assert app.plan_state_scheduler.health_snapshot()["license_blocked"] is True
         assert app.hot_collection_scheduler.health_snapshot()["license_blocked"] is True
+        assert app.hot_confirmation_scheduler.health_snapshot()["license_blocked"] is True
         with app.database.connect(readonly=True) as conn:  # type: ignore[union-attr]
             assert conn.execute("SELECT COUNT(*) FROM background_job").fetchone()[0] == 0
             assert conn.execute("SELECT COUNT(*) FROM collection_batch").fetchone()[0] == 0
