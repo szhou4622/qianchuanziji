@@ -14,13 +14,14 @@ from commercial_v1.security.redaction import sanitize_text
 from commercial_v1.storage.database import Database
 from commercial_v1.storage.writer import StorageWriter
 
-from .client import OpenApiClient
+from .client import ApiResponse, OpenApiClient
 from .contracts import (
     ADVERTISER_PUBLIC_INFO,
     EBP_ADVERTISER_LIST,
     OAUTH_ADVERTISER_GET,
     SHOP_ADVERTISER_LIST,
 )
+from .errors import OpenApiTokenError
 from .normalizers import (
     FinalAdvertiser,
     OAuthSubject,
@@ -168,17 +169,64 @@ class AccountDiscoveryService:
         self._tokens = token_provider
         self._store = store
 
+    def _get_with_refresh(
+        self,
+        auth_profile_id: str,
+        endpoint: str,
+        *,
+        query: Mapping[str, Any] | None = None,
+        advertiser_id: str = "",
+    ) -> ApiResponse:
+        token = self._tokens.get_access_token(auth_profile_id)
+        try:
+            return self._client.get(
+                endpoint,
+                query=query,
+                access_token=token,
+                advertiser_id=advertiser_id,
+            )
+        except OpenApiTokenError:
+            refreshed = self._tokens.get_access_token(auth_profile_id, force_refresh=True)
+            return self._client.get(
+                endpoint,
+                query=query,
+                access_token=refreshed,
+                advertiser_id=advertiser_id,
+            )
+
+    def _paged(
+        self,
+        auth_profile_id: str,
+        endpoint: str,
+        *,
+        query: Mapping[str, Any],
+        advertiser_id: str = "",
+        identity_getter=None,
+    ):
+        return get_all_pages(
+            self._client,
+            endpoint,
+            query=query,
+            access_token=self._tokens.get_access_token(auth_profile_id),
+            advertiser_id=advertiser_id,
+            page_size=100,
+            identity_getter=identity_getter,
+            refresh_access_token=lambda: self._tokens.get_access_token(
+                auth_profile_id,
+                force_refresh=True,
+            ),
+        )
+
     def discover(self, auth_profile_id: str) -> AccountDiscoveryResult:
-        access_token = self._tokens.get_access_token(auth_profile_id)
         evidence: dict[str, Any] = {
             "complete": True,
             "oauth_subjects": [],
             "lanes": {},
         }
 
-        subject_response = self._client.get(
+        subject_response = self._get_with_refresh(
+            auth_profile_id,
             OAUTH_ADVERTISER_GET,
-            access_token=access_token,
         )
         subjects = tuple(
             normalize_oauth_subject(row) for row in extract_items(subject_response.data)
@@ -197,12 +245,10 @@ class AccountDiscoveryService:
 
         # 1) 最终 EBP/Qianchuan 账户。正式契约以 account_id 为最终 advertiser_id。
         try:
-            rows, request_ids = get_all_pages(
-                self._client,
+            rows, request_ids = self._paged(
+                auth_profile_id,
                 EBP_ADVERTISER_LIST,
                 query={"account_type": "QIANCHUAN"},
-                access_token=access_token,
-                page_size=100,
                 identity_getter=lambda row: row.get("account_id"),
             )
             for row in rows:
@@ -231,12 +277,10 @@ class AccountDiscoveryService:
                 )
                 continue
             try:
-                rows, request_ids = get_all_pages(
-                    self._client,
+                rows, request_ids = self._paged(
+                    auth_profile_id,
                     SHOP_ADVERTISER_LIST,
                     query={"shop_id": shop_id, "permission": ["QC_AWEME"]},
-                    access_token=access_token,
-                    page_size=100,
                     identity_getter=lambda row: row.get("advertiser_id") or row.get("account_id"),
                 )
                 for row in rows:
@@ -271,7 +315,7 @@ class AccountDiscoveryService:
         ]
         if direct_subject_ids:
             self._enrich_or_confirm_public_info(
-                access_token,
+                auth_profile_id,
                 direct_subject_ids,
                 resolved,
                 sources,
@@ -282,7 +326,7 @@ class AccountDiscoveryService:
         # 4) 对所有已确认 advertiser 再查 PublicInfo 补全名称。失败不否定账户 ID 身份。
         if resolved:
             self._enrich_or_confirm_public_info(
-                access_token,
+                auth_profile_id,
                 sorted(resolved),
                 resolved,
                 sources,
@@ -307,7 +351,7 @@ class AccountDiscoveryService:
 
     def _enrich_or_confirm_public_info(
         self,
-        access_token: str,
+        auth_profile_id: str,
         advertiser_ids: list[str],
         resolved: dict[str, FinalAdvertiser],
         sources: dict[str, list[str]],
@@ -321,10 +365,10 @@ class AccountDiscoveryService:
         try:
             for offset in range(0, len(unique_ids), 100):
                 batch = unique_ids[offset : offset + 100]
-                response = self._client.get(
+                response = self._get_with_refresh(
+                    auth_profile_id,
                     ADVERTISER_PUBLIC_INFO,
                     query={"advertiser_ids": batch},
-                    access_token=access_token,
                 )
                 request_ids.append(response.request_id)
                 for row in extract_items(response.data):
