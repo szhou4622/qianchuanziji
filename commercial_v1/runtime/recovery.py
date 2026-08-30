@@ -28,6 +28,9 @@ DEFAULT_RECOVERY_POLICY: dict[str, str] = {
     "CONTROL_5M": "abort",
     "PLAN_STATUS_CHECK": "abort",
     "PLAN_CATALOG_REFRESH": "abort",
+    # 异常对象证据确认不是历史实时点；重启后必须继续完成，否则 Latest 会永久停在不可信状态。
+    "MATERIAL_CONFIRM": "requeue",
+    "CONTROL_CONFIRM": "requeue",
     # 可持续恢复的持久任务。
     "RECONCILE_EXECUTION": "requeue",
     "FEISHU_OUTBOX": "requeue",
