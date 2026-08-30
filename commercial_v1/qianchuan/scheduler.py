@@ -3,12 +3,17 @@
 它只服务 WATCHING 计划；ACTIVE_COLLECTING 计划不继续跑 10 分钟检查。
 Scheduler 每次只为一个目标保留一个 QUEUED/RUNNING Job。进程重启后，历史 RUNNING
 状态检查可以被恢复层 ABORT，Scheduler 只重新生成“当前检查”，不补历史周期。
+
+商业 Runtime 可注入 ``business_allowed``。激活失效时既不生成新状态检查，也不会让
+已经排队的状态检查触发网络请求；计划的 next_status_check_at 保持不变，恢复激活后
+只生成当前检查。
 """
 from __future__ import annotations
 
 import json
 import threading
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 
@@ -20,6 +25,7 @@ from commercial_v1.storage.writer import StorageWriter
 from .plans import MonitorPlanStore, PlanMonitorService
 
 PLAN_STATUS_CHECK = "PLAN_STATUS_CHECK"
+BusinessAllowed = Callable[[], bool]
 
 
 def _utc_now() -> datetime:
@@ -32,6 +38,10 @@ def _iso(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat(timespec="seconds")
 
 
+def _always_allowed() -> bool:
+    return True
+
+
 class PlanStateCheckHandler:
     def __init__(
         self,
@@ -41,17 +51,21 @@ class PlanStateCheckHandler:
         monitor: PlanMonitorService,
         *,
         retry_minutes: int = 2,
+        business_allowed: BusinessAllowed = _always_allowed,
     ) -> None:
         self._database = database
         self._writer = writer
         self._store = store
         self._monitor = monitor
         self._retry_minutes = max(1, int(retry_minutes))
+        self._business_allowed = business_allowed
 
     def __call__(self, job: ClaimedJob) -> Mapping[str, Any]:
         target_uid = str(job.payload.get("target_uid") or "").strip()
         if not target_uid:
             raise ValueError("PLAN_STATUS_CHECK payload missing target_uid")
+        if not self._business_allowed():
+            return {"target_uid": target_uid, "skipped": "LICENSE_BLOCKED"}
         target = self._store.get_target(target_uid)
         if not int(target["monitor_enabled"]):
             return {"target_uid": target_uid, "skipped": "MONITOR_DISABLED"}
@@ -137,17 +151,20 @@ class PlanStateScheduler:
         writer: StorageWriter,
         *,
         interval_seconds: float = 15.0,
+        business_allowed: BusinessAllowed = _always_allowed,
     ) -> None:
         if interval_seconds <= 0:
             raise ValueError("interval_seconds must be positive")
         self._database = database
         self._writer = writer
         self._interval = float(interval_seconds)
+        self._business_allowed = business_allowed
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_error: str | None = None
         self._enqueued = 0
         self._last_scan_at: str | None = None
+        self._license_blocked = False
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -172,6 +189,12 @@ class PlanStateScheduler:
 
     def run_once(self) -> int:
         now = _iso(_utc_now())
+        self._last_scan_at = now
+        if not self._business_allowed():
+            self._license_blocked = True
+            self._last_error = None
+            return 0
+        self._license_blocked = False
 
         def work(conn):
             due = conn.execute(
@@ -210,7 +233,6 @@ class PlanStateScheduler:
 
         inserted = int(self._writer.transaction(work).result(timeout=5))
         self._enqueued += inserted
-        self._last_scan_at = now
         self._last_error = None
         return inserted
 
@@ -219,6 +241,7 @@ class PlanStateScheduler:
             "alive": bool(self._thread and self._thread.is_alive()),
             "enqueued": self._enqueued,
             "last_scan_at": self._last_scan_at,
+            "license_blocked": self._license_blocked,
             "last_error": self._last_error,
         }
 
