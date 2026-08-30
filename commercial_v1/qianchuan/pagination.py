@@ -2,6 +2,9 @@
 
 分页是“数据可信度边界”，不是便利函数。只要无法证明页数/总数完整，就返回错误，
 上层必须保留已有可信数据，不能把半页结果覆盖到本地状态。
+
+若平台明确返回 Token 失效，调用方可提供 ``refresh_access_token``。整次分页最多强制
+刷新一次，随后从当前页重新请求；不会因为每一页分别失败而反复刷新。
 """
 from __future__ import annotations
 
@@ -10,7 +13,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from .client import ApiResponse, OpenApiClient
-from .errors import OpenApiResponseError
+from .errors import OpenApiResponseError, OpenApiTokenError
 
 
 PRIMARY_LIST_KEYS = (
@@ -109,6 +112,7 @@ def get_all_pages(
     page_size: int = 100,
     max_pages: int = 1000,
     identity_getter: Callable[[Mapping[str, Any]], Any] | None = None,
+    refresh_access_token: Callable[[], str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """串行读取完整分页并验证总数、重复页和对象唯一性。"""
     size = max(1, min(1000, int(page_size)))
@@ -117,17 +121,40 @@ def get_all_pages(
     request_ids: list[str] = []
     fingerprints: set[str] = set()
     expected_total: int | None = None
+    current_token = str(access_token or "")
+    token_refreshed = False
+
+    def request_page(page_query: Mapping[str, Any]) -> ApiResponse:
+        nonlocal current_token, token_refreshed
+        try:
+            return client.get(
+                endpoint,
+                query=page_query,
+                access_token=current_token,
+                advertiser_id=advertiser_id,
+            )
+        except OpenApiTokenError:
+            if token_refreshed or refresh_access_token is None:
+                raise
+            current_token = str(refresh_access_token() or "")
+            token_refreshed = True
+            if not current_token:
+                raise OpenApiTokenError(
+                    "token refresh returned an empty access token",
+                    code="LOCAL_REFRESH_EMPTY",
+                )
+            return client.get(
+                endpoint,
+                query=page_query,
+                access_token=current_token,
+                advertiser_id=advertiser_id,
+            )
 
     for page in range(1, page_limit + 1):
         current = dict(query)
         current["page"] = page
         current["page_size"] = size
-        response: ApiResponse = client.get(
-            endpoint,
-            query=current,
-            access_token=access_token,
-            advertiser_id=advertiser_id,
-        )
+        response = request_page(current)
         items = extract_items(response.data)
         fingerprint = json.dumps(items, ensure_ascii=False, sort_keys=True, default=str)
         if page > 1 and fingerprint in fingerprints:
