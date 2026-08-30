@@ -1,6 +1,7 @@
 """Phase 3 固定墙钟 5 分钟热采集调度器。
 
 实时周期只生成当前周期，不补历史周期；Material / Control 独立排队，单目标同流水不重叠。
+可信 SUCCESS 批次可通过回调交给 Phase 4 持久策略队列，异常批次绝不触发策略。
 """
 from __future__ import annotations
 
@@ -21,6 +22,7 @@ from .hot_collection import HotCollectionService, fixed_five_minute_slot, iso, u
 MATERIAL_5M = "MATERIAL_5M"
 CONTROL_5M = "CONTROL_5M"
 BusinessAllowed = Callable[[], bool]
+TrustedBatchCallback = Callable[[str, str, str], Any]
 
 
 def _always_allowed() -> bool:
@@ -44,6 +46,7 @@ class HotCollectionHandler:
         pipeline_type: str,
         *,
         business_allowed: BusinessAllowed = _always_allowed,
+        on_trusted_batch: TrustedBatchCallback | None = None,
     ) -> None:
         if pipeline_type not in {MATERIAL_5M, CONTROL_5M}:
             raise ValueError("unsupported hot pipeline")
@@ -51,6 +54,7 @@ class HotCollectionHandler:
         self._writer = writer
         self._pipeline = pipeline_type
         self._business_allowed = business_allowed
+        self._on_trusted_batch = on_trusted_batch
 
     def __call__(self, job: ClaimedJob) -> Mapping[str, Any]:
         target_uid = str(job.payload.get("target_uid") or "").strip()
@@ -65,6 +69,16 @@ class HotCollectionHandler:
                 result = self._service.collect_materials(target_uid, scheduled_at=scheduled_at)
             else:
                 result = self._service.collect_controls(target_uid, scheduled_at=scheduled_at)
+
+            # 只有完整、可信 SUCCESS 才能进入策略。SUSPICIOUS_EMPTY / FAILED /
+            # MISSING confirmation 本身都不会从这里直接产生策略任务。
+            strategy_job_uid = None
+            if result.status == "SUCCESS" and self._on_trusted_batch is not None:
+                strategy_job_uid = self._on_trusted_batch(
+                    target_uid,
+                    self._pipeline,
+                    result.batch_id,
+                )
             return {
                 "target_uid": target_uid,
                 "pipeline_type": self._pipeline,
@@ -73,6 +87,7 @@ class HotCollectionHandler:
                 "row_count": result.row_count,
                 "suspicious_empty": result.suspicious_empty,
                 "missing_count": result.missing_count,
+                "strategy_job_uid": strategy_job_uid,
             }
         finally:
             self._advance_plan_clock(target_uid)
@@ -166,7 +181,6 @@ class HotCollectionScheduler:
                     due_dt = current_dt
                 lateness = max(0.0, (current_dt - due_dt).total_seconds())
 
-                # 已经跑过历史周期的计划，重启/休眠后不补旧实时点。
                 if row["last_hot_collect_at"] and lateness > self._max_lateness:
                     next_due = iso(next_five_minute_boundary(current_dt))
                     conn.execute(
@@ -176,7 +190,6 @@ class HotCollectionScheduler:
                     counters["skipped_stale"] += 1
                     continue
 
-                # 首采可立即执行；周期采集使用当前约定的 due 时间。
                 slot = due_text if not row["last_hot_collect_at"] else fixed_five_minute_slot(due_dt)
                 for pipeline in (MATERIAL_5M, CONTROL_5M):
                     existing_batch = conn.execute(
@@ -209,9 +222,17 @@ class HotCollectionScheduler:
                                started_at,finished_at,status,error_type,error_message,created_at
                                ) VALUES(?,?,?,?,?,?,?,?,?,'SKIPPED_OVERLAP','OVERLAP',?,?)""",
                             (
-                                batch_id, row["account_uid"], target_uid, row["advertiser_id"], row["ad_id"],
-                                pipeline, slot, current, current,
-                                "previous hot job still queued/running", current,
+                                batch_id,
+                                row["account_uid"],
+                                target_uid,
+                                row["advertiser_id"],
+                                row["ad_id"],
+                                pipeline,
+                                slot,
+                                current,
+                                current,
+                                "previous hot job still queued/running",
+                                current,
                             ),
                         )
                         counters["skipped_overlap"] += 1
@@ -231,7 +252,6 @@ class HotCollectionScheduler:
                     )
                     counters["enqueued"] += 1
 
-                # 防止 Scheduler 在 Worker 开始前重复扫描同一个 due。
                 conn.execute(
                     "UPDATE monitor_plan SET next_hot_collect_at=?,updated_at=? WHERE target_uid=?",
                     (iso(next_five_minute_boundary(current_dt)), current, target_uid),
