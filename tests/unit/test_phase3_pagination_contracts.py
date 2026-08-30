@@ -27,12 +27,12 @@ class ScriptedClient:
         return result
 
 
-def _response(items, *, total, request_id):
+def _response(items, *, total, request_id, page_size=100, has_more=None):
+    page_info = {"page_size": page_size, "total_number": total}
+    if has_more is not None:
+        page_info["has_more"] = bool(has_more)
     return ApiResponse(
-        data={
-            "items": list(items),
-            "page_info": {"page_size": 100, "total_number": total},
-        },
+        data={"items": list(items), "page_info": page_info},
         raw={},
         request_id=request_id,
         code="0",
@@ -120,10 +120,28 @@ def test_control_status_and_scene_filters_fail_closed() -> None:
 def test_token_refresh_restarts_whole_pagination_from_page_one() -> None:
     client = ScriptedClient(
         [
-            _response([{"id": "old-1"}], total=2, request_id="old-rid-1"),
+            _response(
+                [{"id": "old-1"}],
+                total=2,
+                request_id="old-rid-1",
+                page_size=1,
+                has_more=True,
+            ),
             OpenApiTokenError("expired", code="TOKEN_EXPIRED"),
-            _response([{"id": "fresh-1"}], total=2, request_id="new-rid-1"),
-            _response([{"id": "fresh-2"}], total=2, request_id="new-rid-2"),
+            _response(
+                [{"id": "fresh-1"}],
+                total=2,
+                request_id="new-rid-1",
+                page_size=1,
+                has_more=True,
+            ),
+            _response(
+                [{"id": "fresh-2"}],
+                total=2,
+                request_id="new-rid-2",
+                page_size=1,
+                has_more=False,
+            ),
         ]
     )
     refresh_calls = 0
@@ -139,7 +157,7 @@ def test_token_refresh_restarts_whole_pagination_from_page_one() -> None:
         query={},
         access_token="old",
         advertiser_id="111111",
-        page_size=100,
+        page_size=1,
         identity_getter=lambda row: row.get("id"),
         refresh_access_token=refresh,
     )
