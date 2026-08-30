@@ -1,8 +1,8 @@
 """千川商业版 V1 本地 Runtime 入口。
 
-Phase 2 已接入 OAuth / advertiser / 计划目录和 10 分钟监控计划活跃状态检查。
-应用启动本身不访问千川网络；只有用户显式发现账户/读取计划，或激活有效且存在到期
-WATCHING 计划时，才会由受控 Worker 发起官方 GET。投放业务 POST 仍被客户端禁止。
+Phase 3 已接入只读素材/调控任务热采集。应用启动本身不访问千川网络；只有用户显式
+读取，或激活有效且存在到期 WATCHING / ACTIVE_COLLECTING 计划时，才由受控 Worker
+发起官方 GET。所有千川投放业务 POST 仍被 OpenApiClient 禁止。
 """
 from __future__ import annotations
 
@@ -12,9 +12,14 @@ from typing import Any
 from commercial_v1.diagnostics.service import DiagnosticsService
 from commercial_v1.license.runtime_state import LicenseRuntimeStateStore
 from commercial_v1.qianchuan import (
+    CONTROL_5M,
+    MATERIAL_5M,
     PLAN_STATUS_CHECK,
     AccountDiscoveryService,
     AccountStore,
+    HotCollectionHandler,
+    HotCollectionScheduler,
+    HotCollectionService,
     MonitorPlanStore,
     OAuthTokenProvider,
     OpenApiClient,
@@ -33,7 +38,7 @@ from commercial_v1.storage.health import DatabaseHealthService
 from commercial_v1.storage.schema import create_schema_v1
 from commercial_v1.storage.writer import StorageWriter
 
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.3.0"
 
 
 class AlreadyRunningError(RuntimeError):
@@ -48,11 +53,10 @@ class CommercialApplication:
     """商业版应用容器。
 
     启动顺序严格为：单实例 → 数据目录/Schema → DB Health → Writer → Recovery →
-    千川服务对象（无网络）→ Supervisor/Workers/Scheduler → Diagnostics。
+    千川服务对象（无网络）→ Supervisor/Workers/Schedulers → Diagnostics。
 
-    任何一步失败都必须释放已获得资源。激活状态不允许正常业务时，计划状态 Scheduler
-    保持存活但不生成新 Job；已排队的状态 Job 也会在 Handler 中被 LICENSE_BLOCKED，
-    因而不会触发网络调用。
+    激活状态不允许正常业务时，Scheduler 保持存活但不生成新业务 Job；已经排队的
+    Handler 也会先执行 LICENSE_BLOCKED，因此不会触发千川网络调用。
     """
 
     def __init__(
@@ -76,11 +80,13 @@ class CommercialApplication:
         self.supervisor: RuntimeSupervisor | None = None
         self.watchdog: RuntimeWatchdog | None = None
         self.job_worker: JobWorker | None = None
+        self.hot_workers: list[JobWorker] = []
         self.lease_recovery_worker: LeaseRecoveryWorker | None = None
         self.plan_state_scheduler: PlanStateScheduler | None = None
+        self.hot_collection_scheduler: HotCollectionScheduler | None = None
         self.diagnostics: DiagnosticsService | None = None
 
-        # Phase 2 千川服务。构造这些对象不得访问网络。
+        # 千川服务对象。构造这些对象不得访问网络。
         self.open_api_client: OpenApiClient | None = None
         self.oauth_tokens: OAuthTokenProvider | None = None
         self.account_store: AccountStore | None = None
@@ -89,6 +95,9 @@ class CommercialApplication:
         self.monitor_plan_store: MonitorPlanStore | None = None
         self.plan_monitor: PlanMonitorService | None = None
         self.plan_state_handler: PlanStateCheckHandler | None = None
+        self.hot_collection: HotCollectionService | None = None
+        self.material_hot_handler: HotCollectionHandler | None = None
+        self.control_hot_handler: HotCollectionHandler | None = None
 
     @property
     def started(self) -> bool:
@@ -125,7 +134,7 @@ class CommercialApplication:
             recovery = StartupRecoveryService(database, writer, jobs)
             recovery_report = recovery.run()
 
-            # Phase 2 服务对象构造：不得在此调用 get_access_token/discover/list_all。
+            # 服务对象构造：不得在这里触发 token 获取、账户发现或任何千川 GET。
             open_api_client = OpenApiClient()
             oauth_tokens = OAuthTokenProvider(database, writer, open_api_client)
             account_store = AccountStore(database, writer)
@@ -137,6 +146,12 @@ class CommercialApplication:
             plan_catalog = PlanCatalogService(open_api_client, oauth_tokens)
             monitor_plan_store = MonitorPlanStore(database, writer)
             plan_monitor = PlanMonitorService(plan_catalog, monitor_plan_store, writer)
+            hot_collection = HotCollectionService(
+                database,
+                writer,
+                open_api_client,
+                oauth_tokens,
+            )
 
             def business_allowed() -> bool:
                 return license_state.get().normal_business_allowed
@@ -153,14 +168,41 @@ class CommercialApplication:
                 writer,
                 business_allowed=business_allowed,
             )
+            material_hot_handler = HotCollectionHandler(
+                hot_collection,
+                writer,
+                MATERIAL_5M,
+                business_allowed=business_allowed,
+            )
+            control_hot_handler = HotCollectionHandler(
+                hot_collection,
+                writer,
+                CONTROL_5M,
+                business_allowed=business_allowed,
+            )
+            hot_collection_scheduler = HotCollectionScheduler(
+                database,
+                writer,
+                business_allowed=business_allowed,
+            )
 
+            # WATCHING 状态检查独立 Worker；热采集先保守使用两个并发 Worker，确保全局
+            # 并发最多 2，不会超过单账户 2 的安全上限。Phase 3 压测后再按账户公平扩容。
             job_worker = JobWorker(
                 jobs,
                 handlers={PLAN_STATUS_CHECK: plan_state_handler},
+                instance_id="plan-state-worker",
             )
+            hot_handlers = {
+                MATERIAL_5M: material_hot_handler,
+                CONTROL_5M: control_hot_handler,
+            }
+            hot_workers = [
+                JobWorker(jobs, handlers=hot_handlers, instance_id=f"hot-read-worker-{index}")
+                for index in (1, 2)
+            ]
             lease_recovery = LeaseRecoveryWorker(jobs, DEFAULT_RECOVERY_POLICY)
             supervisor = RuntimeSupervisor()
-            # 提前挂到 self，保证 supervisor.start_all 或 Diagnostics 构造失败时也能完整清理。
             self.supervisor = supervisor
 
             supervisor.register(
@@ -175,7 +217,7 @@ class CommercialApplication:
             )
             supervisor.register(
                 ComponentSpec(
-                    name="job_worker",
+                    name="plan_state_worker",
                     start=job_worker.start,
                     stop=job_worker.stop,
                     health=job_worker.health_snapshot,
@@ -183,6 +225,17 @@ class CommercialApplication:
                     critical=True,
                 )
             )
+            for index, worker in enumerate(hot_workers, 1):
+                supervisor.register(
+                    ComponentSpec(
+                        name=f"hot_read_worker_{index}",
+                        start=worker.start,
+                        stop=worker.stop,
+                        health=worker.health_snapshot,
+                        restart=worker.restart,
+                        critical=True,
+                    )
+                )
             supervisor.register(
                 ComponentSpec(
                     name="lease_recovery",
@@ -200,6 +253,16 @@ class CommercialApplication:
                     stop=plan_state_scheduler.stop,
                     health=plan_state_scheduler.health_snapshot,
                     restart=plan_state_scheduler.restart,
+                    critical=True,
+                )
+            )
+            supervisor.register(
+                ComponentSpec(
+                    name="hot_collection_scheduler",
+                    start=hot_collection_scheduler.start,
+                    stop=hot_collection_scheduler.stop,
+                    health=hot_collection_scheduler.health_snapshot,
+                    restart=hot_collection_scheduler.restart,
                     critical=True,
                 )
             )
@@ -240,8 +303,10 @@ class CommercialApplication:
             self.recovery_report = recovery_report
             self.watchdog = watchdog
             self.job_worker = job_worker
+            self.hot_workers = hot_workers
             self.lease_recovery_worker = lease_recovery
             self.plan_state_scheduler = plan_state_scheduler
+            self.hot_collection_scheduler = hot_collection_scheduler
             self.diagnostics = diagnostics
 
             self.open_api_client = open_api_client
@@ -252,6 +317,9 @@ class CommercialApplication:
             self.monitor_plan_store = monitor_plan_store
             self.plan_monitor = plan_monitor
             self.plan_state_handler = plan_state_handler
+            self.hot_collection = hot_collection
+            self.material_hot_handler = material_hot_handler
+            self.control_hot_handler = control_hot_handler
 
             self._started = True
             return self
