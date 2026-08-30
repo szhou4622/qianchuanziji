@@ -9,7 +9,7 @@ import json
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 from commercial_v1.storage.database import Database
 from commercial_v1.storage.writer import StorageWriter
@@ -61,15 +61,28 @@ class PersistentJobStore:
         self._writer.execute("INSERT INTO background_job(job_uid,job_type,priority,payload_json,status,due_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)", (uid, job_type, priority, payload_json, "QUEUED", due_text, now_text, now_text)).result(timeout=5)
         return uid
 
-    def claim_next(self, owner_instance_id: str, *, lease_seconds: int = 45) -> ClaimedJob | None:
+    def claim_next(self, owner_instance_id: str, *, lease_seconds: int = 45, job_types: Iterable[str] | None = None) -> ClaimedJob | None:
+        """Claim 下一个到期 Job。
+
+        Worker 应传入自己明确支持的 job_types，避免通用 Worker 抢到未来业务 Job。
+        job_types=None 仅保留给底层测试或显式的全类型 Worker。
+        """
         if lease_seconds <= 0:
             raise ValueError("lease_seconds must be positive")
+        allowed = tuple(dict.fromkeys(str(item) for item in job_types or ()))
         now = self._clock()
         now_text = _iso(now)
         expires_text = _iso(now + timedelta(seconds=lease_seconds))
 
         def work(conn):
-            row = conn.execute("SELECT * FROM background_job WHERE status='QUEUED' AND due_at<=? ORDER BY priority ASC,due_at ASC,created_at ASC LIMIT 1", (now_text,)).fetchone()
+            if job_types is not None:
+                if not allowed:
+                    return None
+                placeholders = ",".join("?" for _ in allowed)
+                sql = f"SELECT * FROM background_job WHERE status='QUEUED' AND due_at<=? AND job_type IN ({placeholders}) ORDER BY priority ASC,due_at ASC,created_at ASC LIMIT 1"
+                row = conn.execute(sql, (now_text, *allowed)).fetchone()
+            else:
+                row = conn.execute("SELECT * FROM background_job WHERE status='QUEUED' AND due_at<=? ORDER BY priority ASC,due_at ASC,created_at ASC LIMIT 1", (now_text,)).fetchone()
             if row is None:
                 return None
             token = int(row["fencing_token"] or 0) + 1
@@ -130,6 +143,11 @@ class PersistentJobStore:
         with self._database.connect(readonly=True) as conn:
             row = conn.execute("SELECT * FROM background_job WHERE job_uid=?", (job_uid,)).fetchone()
             return dict(row) if row is not None else None
+
+    def queue_counts(self) -> dict[str, int]:
+        with self._database.connect(readonly=True) as conn:
+            rows = conn.execute("SELECT status,COUNT(*) AS n FROM background_job GROUP BY status").fetchall()
+        return {str(row["status"]): int(row["n"]) for row in rows}
 
     @staticmethod
     def _assert_current(conn, job: ClaimedJob, now_text: str) -> None:
