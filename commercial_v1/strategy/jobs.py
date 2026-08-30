@@ -1,11 +1,12 @@
 """Phase 4 策略求值 Job。
 
 可信热采集完成后只排本地策略任务；策略 Job 可重跑，因为 HIT 使用确定性主键幂等落库。
+软件授权失效时不得继续产生新的策略结果。
 """
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from commercial_v1.runtime.jobs import ClaimedJob, PersistentJobStore
@@ -14,6 +15,11 @@ from .engine import StrategyEvaluationService
 
 STRATEGY_MATERIAL_EVALUATE = "STRATEGY_MATERIAL_EVALUATE"
 STRATEGY_CONTROL_EVALUATE = "STRATEGY_CONTROL_EVALUATE"
+BusinessAllowed = Callable[[], bool]
+
+
+def _always_allowed() -> bool:
+    return True
 
 
 def strategy_job_uid(pipeline_type: str, target_uid: str, batch_id: str) -> str:
@@ -44,8 +50,6 @@ class StrategyEvaluationEnqueuer:
                 job_uid=uid,
             )
         except Exception:
-            # 确定性 job_uid 使重复入队等价于“已经存在”。只有确实存在时才吞掉异常；
-            # 其他数据库错误继续上抛，避免把真正的持久化故障伪装成成功。
             existing = self._jobs.get(uid)
             if existing is not None:
                 return uid
@@ -53,17 +57,30 @@ class StrategyEvaluationEnqueuer:
 
 
 class StrategyEvaluationHandler:
-    def __init__(self, service: StrategyEvaluationService, job_type: str) -> None:
+    def __init__(
+        self,
+        service: StrategyEvaluationService,
+        job_type: str,
+        *,
+        business_allowed: BusinessAllowed = _always_allowed,
+    ) -> None:
         if job_type not in {STRATEGY_MATERIAL_EVALUATE, STRATEGY_CONTROL_EVALUATE}:
             raise ValueError("unsupported strategy evaluation job type")
         self._service = service
         self._job_type = job_type
+        self._business_allowed = business_allowed
 
     def __call__(self, job: ClaimedJob) -> Mapping[str, Any]:
         target_uid = str(job.payload.get("target_uid") or "").strip()
         source_batch_id = str(job.payload.get("source_batch_id") or "").strip()
         if not target_uid or not source_batch_id:
             raise ValueError("strategy evaluation job payload is incomplete")
+        if not self._business_allowed():
+            return {
+                "target_uid": target_uid,
+                "source_batch_id": source_batch_id,
+                "skipped": "LICENSE_BLOCKED",
+            }
         if self._job_type == STRATEGY_MATERIAL_EVALUATE:
             result = self._service.evaluate_material_batch(target_uid, source_batch_id)
         else:
