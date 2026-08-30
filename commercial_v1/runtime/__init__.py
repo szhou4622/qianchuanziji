@@ -3,6 +3,7 @@
 from .jobs import ClaimedJob, PersistentJobStore, StaleJobFencingToken
 from .leases import Lease, LeaseConflict, LeaseManager, StaleFencingToken
 from .single_instance import GlobalUserMutex
+from .supervisor import ComponentSpec, RuntimeSupervisor, RuntimeWatchdog
 
 __all__ = [
     "ClaimedJob",
@@ -13,4 +14,7 @@ __all__ = [
     "LeaseManager",
     "StaleFencingToken",
     "GlobalUserMutex",
+    "ComponentSpec",
+    "RuntimeSupervisor",
+    "RuntimeWatchdog",
 ]
