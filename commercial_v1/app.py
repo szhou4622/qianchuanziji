@@ -99,6 +99,8 @@ class CommercialApplication:
             job_worker = JobWorker(jobs, handlers={})
             lease_recovery = LeaseRecoveryWorker(jobs, DEFAULT_RECOVERY_POLICY)
             supervisor = RuntimeSupervisor()
+            # 提前挂到 self，保证 supervisor.start_all 或 Diagnostics 构造失败时也能完整清理。
+            self.supervisor = supervisor
 
             supervisor.register(
                 ComponentSpec(
@@ -165,7 +167,6 @@ class CommercialApplication:
             self.license_state = license_state
             self.health = health_service
             self.recovery_report = recovery_report
-            self.supervisor = supervisor
             self.watchdog = watchdog
             self.job_worker = job_worker
             self.lease_recovery_worker = lease_recovery
