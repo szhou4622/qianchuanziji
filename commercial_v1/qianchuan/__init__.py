@@ -12,6 +12,14 @@ from .errors import (
     OpenApiTokenError,
 )
 from .hot_collection import CollectionResult, HotCollectionService
+from .hot_confirmation import (
+    CONTROL_CONFIRM,
+    MATERIAL_CONFIRM,
+    ConfirmationResult,
+    HotConfirmationHandler,
+    HotConfirmationScheduler,
+    HotConfirmationService,
+)
 from .hot_models import (
     CONTROL_METRIC_FIELDS,
     MATERIAL_METRIC_FIELDS,
@@ -71,6 +79,12 @@ __all__ = [
     "CONTROL_5M",
     "HotCollectionHandler",
     "HotCollectionScheduler",
+    "MATERIAL_CONFIRM",
+    "CONTROL_CONFIRM",
+    "ConfirmationResult",
+    "HotConfirmationService",
+    "HotConfirmationHandler",
+    "HotConfirmationScheduler",
     "OAuthTokenProvider",
     "TokenBundle",
     "WindowsDpapiProtector",
