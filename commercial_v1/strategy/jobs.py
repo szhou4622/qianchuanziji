@@ -1,7 +1,7 @@
 """Phase 4 策略求值 Job。
 
-可信热采集完成后只排本地策略任务；策略 Job 可重跑，因为 HIT 使用确定性主键幂等落库。
-软件授权失效时不得继续产生新的策略结果。
+可信热采集完成后只在该计划确有启用策略时排本地策略任务；策略 Job 可重跑，因为 HIT
+使用确定性主键幂等落库。软件授权失效时不得继续产生新的策略结果。
 """
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from typing import Any
 
 from commercial_v1.runtime.jobs import ClaimedJob, PersistentJobStore
 
-from .engine import StrategyEvaluationService
+from .engine import StrategyEvaluationService, StrategyStore
 
 STRATEGY_MATERIAL_EVALUATE = "STRATEGY_MATERIAL_EVALUATE"
 STRATEGY_CONTROL_EVALUATE = "STRATEGY_CONTROL_EVALUATE"
@@ -28,19 +28,31 @@ def strategy_job_uid(pipeline_type: str, target_uid: str, batch_id: str) -> str:
 
 
 class StrategyEvaluationEnqueuer:
-    """把成功的 Phase 3 热采集批次转换为 Durable 策略 Job。"""
+    """把成功的 Phase 3 热采集批次转换为 Durable 策略 Job。
 
-    def __init__(self, jobs: PersistentJobStore) -> None:
+    没有启用策略时不生成空 Job。这样 100 个监控计划在完全没配置策略时，不会每 5 分钟
+    额外写入最多 200 条无业务意义的策略队列记录。
+    """
+
+    def __init__(self, jobs: PersistentJobStore, store: StrategyStore) -> None:
         self._jobs = jobs
+        self._store = store
 
     def __call__(self, target_uid: str, pipeline_type: str, batch_id: str) -> str | None:
         pipeline = str(pipeline_type or "").strip().upper()
         if pipeline == "MATERIAL_5M":
             job_type = STRATEGY_MATERIAL_EVALUATE
+            object_type = "MATERIAL"
         elif pipeline == "CONTROL_5M":
             job_type = STRATEGY_CONTROL_EVALUATE
+            object_type = "CONTROL_TASK"
         else:
             return None
+
+        # 这里只读取本地策略配置，不访问千川网络。
+        if not self._store.list_for_target(target_uid, object_type=object_type):
+            return None
+
         uid = strategy_job_uid(pipeline, target_uid, batch_id)
         try:
             return self._jobs.enqueue(
@@ -50,6 +62,8 @@ class StrategyEvaluationEnqueuer:
                 job_uid=uid,
             )
         except Exception:
+            # 确定性 job_uid 让重复 callback 幂等。只有数据库里确实已有同一 job 才吞掉
+            # UNIQUE 异常，其他持久化错误必须继续上抛。
             existing = self._jobs.get(uid)
             if existing is not None:
                 return uid
