@@ -11,6 +11,19 @@ from .errors import (
     OpenApiResponseError,
     OpenApiTokenError,
 )
+from .hot_collection import CollectionResult, HotCollectionService
+from .hot_models import (
+    CONTROL_METRIC_FIELDS,
+    MATERIAL_METRIC_FIELDS,
+    ControlTaskHotRecord,
+    MaterialHotRecord,
+)
+from .hot_scheduler import (
+    CONTROL_5M,
+    MATERIAL_5M,
+    HotCollectionHandler,
+    HotCollectionScheduler,
+)
 from .normalizers import FinalAdvertiser, NormalizedPlan, OAuthSubject
 from .plans import (
     FOUR_PLAN_CLASSES,
@@ -48,6 +61,16 @@ __all__ = [
     "PLAN_STATUS_CHECK",
     "PlanStateCheckHandler",
     "PlanStateScheduler",
+    "MATERIAL_METRIC_FIELDS",
+    "CONTROL_METRIC_FIELDS",
+    "MaterialHotRecord",
+    "ControlTaskHotRecord",
+    "CollectionResult",
+    "HotCollectionService",
+    "MATERIAL_5M",
+    "CONTROL_5M",
+    "HotCollectionHandler",
+    "HotCollectionScheduler",
     "OAuthTokenProvider",
     "TokenBundle",
     "WindowsDpapiProtector",
