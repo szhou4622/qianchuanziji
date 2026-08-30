@@ -22,8 +22,10 @@ def test_writer_serializes_50_threads_5000_writes(tmp_path: Path) -> None:
 
     def produce(worker: int) -> None:
         futures = [writer.execute("INSERT INTO counter(worker,n) VALUES(?,?)", (worker, n)) for n in range(100)]
+        # 这里验证的是“50 个生产线程最终仍由单 Writer 无丢失串行落库”，不是把
+        # GitHub Windows runner 的磁盘抖动当成 10 秒性能 SLA。真实业务批量写另有事务聚合。
         for future in futures:
-            future.result(timeout=10)
+            future.result(timeout=30)
 
     with ThreadPoolExecutor(max_workers=50) as pool:
         list(pool.map(produce, range(50)))
