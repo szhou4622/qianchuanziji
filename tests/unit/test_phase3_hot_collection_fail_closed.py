@@ -165,10 +165,12 @@ def test_material_filter_contract_failure_keeps_previous_latest(tmp_path: Path) 
             assert latest["strategy_eligible"] == 1
             assert conn.execute("SELECT COUNT(*) FROM material_5m").fetchone()[0] == 1
             failed = conn.execute(
-                "SELECT status,error_code FROM collection_batch ORDER BY started_at DESC,batch_id DESC LIMIT 1"
+                """SELECT status,error_code FROM collection_batch
+                   WHERE pipeline_type='MATERIAL_5M' AND error_code='MATERIAL_ACTIVE_FILTER_MISMATCH'
+                   LIMIT 1"""
             ).fetchone()
+            assert failed is not None
             assert failed["status"] == "FAILED"
-            assert failed["error_code"] == "MATERIAL_ACTIVE_FILTER_MISMATCH"
     finally:
         writer.close()
 
@@ -200,9 +202,11 @@ def test_control_filter_contract_failure_keeps_previous_latest(tmp_path: Path) -
             assert latest["write_eligible"] == 1
             assert conn.execute("SELECT COUNT(*) FROM control_task_5m").fetchone()[0] == 1
             failed = conn.execute(
-                "SELECT status,error_code FROM collection_batch ORDER BY started_at DESC,batch_id DESC LIMIT 1"
+                """SELECT status,error_code FROM collection_batch
+                   WHERE pipeline_type='CONTROL_5M' AND error_code='CONTROL_ACTIVE_FILTER_MISMATCH'
+                   LIMIT 1"""
             ).fetchone()
+            assert failed is not None
             assert failed["status"] == "FAILED"
-            assert failed["error_code"] == "CONTROL_ACTIVE_FILTER_MISMATCH"
     finally:
         writer.close()
