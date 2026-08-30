@@ -1,4 +1,5 @@
 import json
+from urllib.parse import parse_qs
 
 import pytest
 
@@ -65,18 +66,20 @@ def test_phase2_rejects_business_post_before_transport() -> None:
     assert called == 0
 
 
-def test_oauth_post_is_allowed_and_does_not_send_access_token_header() -> None:
+def test_oauth_post_uses_form_encoding_and_no_access_token_header() -> None:
     seen = []
 
     def transport(method, url, headers, body, timeout):
-        seen.append((method, url, dict(headers), json.loads(body.decode("utf-8"))))
+        seen.append((method, url, dict(headers), parse_qs(body.decode("utf-8"))))
         return _response({"code": 0, "data": {"access_token": "new-token"}})
 
     client = OpenApiClient(transport=transport, rate_limiter=NoWaitLimiter())  # type: ignore[arg-type]
     result = client.post_oauth(OAUTH_ACCESS_TOKEN, {"app_id": 1, "secret": "x", "auth_code": "y"})
     assert result.data["access_token"] == "new-token"
     assert seen[0][0] == "POST"
+    assert seen[0][2]["Content-Type"] == "application/x-www-form-urlencoded"
     assert "Access-Token" not in seen[0][2]
+    assert seen[0][3] == {"app_id": ["1"], "secret": ["x"], "auth_code": ["y"]}
 
 
 def test_rate_limit_business_code_retries_get_boundedly() -> None:
