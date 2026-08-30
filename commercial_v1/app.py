@@ -1,9 +1,8 @@
 """千川商业版 V1 本地 Runtime 入口。
 
-Phase 3 已接入只读素材/调控任务热采集、异常对象证据确认、账户公平调度与单账户并发
-上限。应用启动本身不访问千川网络；只有用户显式读取，或激活有效且存在到期
-WATCHING / ACTIVE_COLLECTING / 确认任务时，才由受控 Worker 发起官方 GET。
-所有千川投放业务 POST 仍被 OpenApiClient 禁止。
+Phase 4 在 Phase 3 可信热采集后接入独立本地策略 Worker：只有可信 SUCCESS 批次才会
+排入确定性策略求值；策略层仍不创建候选、不发飞书、不调用任何千川投放业务 POST。
+应用启动本身不访问千川网络。
 """
 from __future__ import annotations
 
@@ -44,8 +43,16 @@ from commercial_v1.storage.database import Database, DatabaseConfig, ensure_data
 from commercial_v1.storage.health import DatabaseHealthService
 from commercial_v1.storage.schema import create_schema_v1
 from commercial_v1.storage.writer import StorageWriter
+from commercial_v1.strategy import (
+    STRATEGY_CONTROL_EVALUATE,
+    STRATEGY_MATERIAL_EVALUATE,
+    StrategyEvaluationEnqueuer,
+    StrategyEvaluationHandler,
+    StrategyEvaluationService,
+    StrategyStore,
+)
 
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.4.0"
 
 
 class AlreadyRunningError(RuntimeError):
@@ -81,6 +88,7 @@ class CommercialApplication:
         self.watchdog: RuntimeWatchdog | None = None
         self.job_worker: JobWorker | None = None
         self.hot_workers: list[JobWorker] = []
+        self.strategy_worker: JobWorker | None = None
         self.lease_recovery_worker: LeaseRecoveryWorker | None = None
         self.plan_state_scheduler: PlanStateScheduler | None = None
         self.hot_collection_scheduler: FairHotCollectionScheduler | None = None
@@ -102,6 +110,12 @@ class CommercialApplication:
         self.hot_confirmation: HotConfirmationService | None = None
         self.material_confirmation_handler: HotConfirmationHandler | None = None
         self.control_confirmation_handler: HotConfirmationHandler | None = None
+
+        self.strategy_store: StrategyStore | None = None
+        self.strategy_evaluation: StrategyEvaluationService | None = None
+        self.strategy_enqueuer: StrategyEvaluationEnqueuer | None = None
+        self.material_strategy_handler: StrategyEvaluationHandler | None = None
+        self.control_strategy_handler: StrategyEvaluationHandler | None = None
 
     @property
     def started(self) -> bool:
@@ -138,7 +152,7 @@ class CommercialApplication:
             recovery = StartupRecoveryService(database, writer, jobs)
             recovery_report = recovery.run()
 
-            # 这里只构造服务对象，禁止启动时主动访问千川网络。
+            # 构造服务对象不得主动访问千川网络。
             open_api_client = OpenApiClient()
             oauth_tokens = OAuthTokenProvider(database, writer, open_api_client)
             account_store = AccountStore(database, writer)
@@ -149,6 +163,10 @@ class CommercialApplication:
             hot_collection = HotCollectionService(database, writer, open_api_client, oauth_tokens)
             hot_confirmation = HotConfirmationService(database, writer, open_api_client, oauth_tokens)
 
+            strategy_store = StrategyStore(database, writer)
+            strategy_evaluation = StrategyEvaluationService(database, writer, strategy_store)
+            strategy_enqueuer = StrategyEvaluationEnqueuer(jobs)
+
             def business_allowed() -> bool:
                 return license_state.get().normal_business_allowed
 
@@ -158,16 +176,35 @@ class CommercialApplication:
             plan_state_scheduler = PlanStateScheduler(database, writer, business_allowed=business_allowed)
 
             material_hot_handler = HotCollectionHandler(
-                hot_collection, writer, MATERIAL_5M, business_allowed=business_allowed
+                hot_collection,
+                writer,
+                MATERIAL_5M,
+                business_allowed=business_allowed,
+                on_trusted_batch=strategy_enqueuer,
             )
             control_hot_handler = HotCollectionHandler(
-                hot_collection, writer, CONTROL_5M, business_allowed=business_allowed
+                hot_collection,
+                writer,
+                CONTROL_5M,
+                business_allowed=business_allowed,
+                on_trusted_batch=strategy_enqueuer,
             )
             material_confirmation_handler = HotConfirmationHandler(
                 hot_confirmation, MATERIAL_CONFIRM, business_allowed=business_allowed
             )
             control_confirmation_handler = HotConfirmationHandler(
                 hot_confirmation, CONTROL_CONFIRM, business_allowed=business_allowed
+            )
+
+            material_strategy_handler = StrategyEvaluationHandler(
+                strategy_evaluation,
+                STRATEGY_MATERIAL_EVALUATE,
+                business_allowed=business_allowed,
+            )
+            control_strategy_handler = StrategyEvaluationHandler(
+                strategy_evaluation,
+                STRATEGY_CONTROL_EVALUATE,
+                business_allowed=business_allowed,
             )
 
             hot_collection_scheduler = FairHotCollectionScheduler(
@@ -185,7 +222,6 @@ class CommercialApplication:
             )
 
             # 全局热读池 6；同一 advertiser 由共享 Gate 硬限制最多 2 个并发读取。
-            # Scheduler 先按账户轮转再分层 priority，避免 100 计划时头部账户霸占队列。
             hot_handlers = {
                 MATERIAL_5M: hot_account_gate.wrap(material_hot_handler),
                 CONTROL_5M: hot_account_gate.wrap(control_hot_handler),
@@ -201,6 +237,17 @@ class CommercialApplication:
                 )
                 for index in range(1, 7)
             ]
+
+            # 策略求值完全本地，独立 Worker，不能占用官方 GET 网络池。
+            strategy_worker = JobWorker(
+                jobs,
+                handlers={
+                    STRATEGY_MATERIAL_EVALUATE: material_strategy_handler,
+                    STRATEGY_CONTROL_EVALUATE: control_strategy_handler,
+                },
+                instance_id="strategy-worker",
+                lease_seconds=60,
+            )
 
             lease_recovery = LeaseRecoveryWorker(jobs, DEFAULT_RECOVERY_POLICY)
             supervisor = RuntimeSupervisor()
@@ -226,6 +273,12 @@ class CommercialApplication:
                         health=worker.health_snapshot, restart=worker.restart, critical=True,
                     )
                 )
+            supervisor.register(
+                ComponentSpec(
+                    name="strategy_worker", start=strategy_worker.start, stop=strategy_worker.stop,
+                    health=strategy_worker.health_snapshot, restart=strategy_worker.restart, critical=True,
+                )
+            )
             supervisor.register(
                 ComponentSpec(
                     name="lease_recovery", start=lease_recovery.start, stop=lease_recovery.stop,
@@ -282,6 +335,7 @@ class CommercialApplication:
             self.watchdog = watchdog
             self.job_worker = job_worker
             self.hot_workers = hot_workers
+            self.strategy_worker = strategy_worker
             self.lease_recovery_worker = lease_recovery
             self.plan_state_scheduler = plan_state_scheduler
             self.hot_collection_scheduler = hot_collection_scheduler
@@ -303,6 +357,12 @@ class CommercialApplication:
             self.hot_confirmation = hot_confirmation
             self.material_confirmation_handler = material_confirmation_handler
             self.control_confirmation_handler = control_confirmation_handler
+
+            self.strategy_store = strategy_store
+            self.strategy_evaluation = strategy_evaluation
+            self.strategy_enqueuer = strategy_enqueuer
+            self.material_strategy_handler = material_strategy_handler
+            self.control_strategy_handler = control_strategy_handler
 
             self._started = True
             return self
