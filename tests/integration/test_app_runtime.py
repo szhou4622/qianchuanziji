@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from commercial_v1.app import CommercialApplication, RuntimeBlockedError
-from commercial_v1.qianchuan import PLAN_STATUS_CHECK
+from commercial_v1.qianchuan import CONTROL_5M, MATERIAL_5M, PLAN_STATUS_CHECK
 from commercial_v1.storage.database import Database, DatabaseConfig
 from commercial_v1.storage.schema import create_schema_v1
 
@@ -20,7 +20,7 @@ class FakeMutex:
         self.closed = True
 
 
-def test_application_starts_fresh_database_and_exposes_phase2_services(tmp_path: Path) -> None:
+def test_application_starts_fresh_database_and_exposes_phase3_services(tmp_path: Path) -> None:
     mutex = FakeMutex()
     app = CommercialApplication(data_dir=tmp_path, mutex=mutex)  # type: ignore[arg-type]
     app.start()
@@ -35,6 +35,11 @@ def test_application_starts_fresh_database_and_exposes_phase2_services(tmp_path:
         assert app.plan_monitor is not None
         assert app.plan_state_handler is not None
         assert app.plan_state_scheduler is not None
+        assert app.hot_collection is not None
+        assert app.material_hot_handler is not None
+        assert app.control_hot_handler is not None
+        assert app.hot_collection_scheduler is not None
+        assert len(app.hot_workers) == 2
 
         snapshot = app.diagnostics_snapshot()
         assert snapshot["schema_version"] == 1
@@ -43,14 +48,24 @@ def test_application_starts_fresh_database_and_exposes_phase2_services(tmp_path:
         assert snapshot["startup_recovery"]["unresolved_execution_count"] == 0
         assert snapshot["license_runtime"]["status"] == "INVALID"
 
-        # Phase 2 Job Handler 和 Scheduler 已进入 Runtime，但未激活时不能产生网络业务。
+        # `job_worker` 是 Phase 2 既有诊断契约，Phase 3 不允许破坏。
         assert PLAN_STATUS_CHECK in snapshot["runtime"]["components"]["job_worker"]["job_types"]
         assert "plan_state_scheduler" in snapshot["runtime"]["components"]
+
+        # Phase 3 热采集已接入 Runtime，但软件激活无效时 Scheduler 不产生任何网络 Job。
+        hot_types = set()
+        for index in (1, 2):
+            component = snapshot["runtime"]["components"][f"hot_read_worker_{index}"]
+            hot_types.update(component["job_types"])
+        assert {MATERIAL_5M, CONTROL_5M} <= hot_types
+        assert "hot_collection_scheduler" in snapshot["runtime"]["components"]
         assert app.plan_state_scheduler.run_once() == 0
-        scheduler_health = app.plan_state_scheduler.health_snapshot()
-        assert scheduler_health["license_blocked"] is True
+        assert app.hot_collection_scheduler.run_once()["enqueued"] == 0
+        assert app.plan_state_scheduler.health_snapshot()["license_blocked"] is True
+        assert app.hot_collection_scheduler.health_snapshot()["license_blocked"] is True
         with app.database.connect(readonly=True) as conn:  # type: ignore[union-attr]
             assert conn.execute("SELECT COUNT(*) FROM background_job").fetchone()[0] == 0
+            assert conn.execute("SELECT COUNT(*) FROM collection_batch").fetchone()[0] == 0
     finally:
         app.stop()
     assert mutex.closed is True
