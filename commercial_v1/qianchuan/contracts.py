@@ -30,6 +30,9 @@ CONTROL_TASK_BUDGET_UPDATE = "/open_api/v1.0/qianchuan/uni_promotion/ad/control_
 CONTROL_TASK_DURATION_UPDATE = "/open_api/v1.0/qianchuan/uni_promotion/ad/control_task/duration/update/"
 
 PHASE2_OAUTH_POST_ENDPOINTS = frozenset({OAUTH_ACCESS_TOKEN, OAUTH_REFRESH_TOKEN})
+
+# Kept under the historical name for compatibility with Phase 2 tests/imports.
+# Phase 3 extends the same read-only client gate with material/control GET only.
 PHASE2_GET_ENDPOINTS = frozenset(
     {
         OAUTH_ADVERTISER_GET,
@@ -38,8 +41,11 @@ PHASE2_GET_ENDPOINTS = frozenset(
         ADVERTISER_PUBLIC_INFO,
         PLAN_LIST,
         PLAN_DETAIL,
+        MATERIAL_GET,
+        CONTROL_TASK_LIST,
     }
 )
+READ_ONLY_GET_ENDPOINTS = PHASE2_GET_ENDPOINTS
 
 ALL_OFFICIAL_ENDPOINTS = frozenset(
     {
