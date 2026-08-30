@@ -19,6 +19,7 @@ from .plans import (
     PlanCatalogService,
     PlanMonitorService,
 )
+from .scheduler import PLAN_STATUS_CHECK, PlanStateCheckHandler, PlanStateScheduler
 from .token_provider import OAuthTokenProvider, TokenBundle, WindowsDpapiProtector
 
 __all__ = [
@@ -44,6 +45,9 @@ __all__ = [
     "PlanCatalogResult",
     "PlanCatalogService",
     "PlanMonitorService",
+    "PLAN_STATUS_CHECK",
+    "PlanStateCheckHandler",
+    "PlanStateScheduler",
     "OAuthTokenProvider",
     "TokenBundle",
     "WindowsDpapiProtector",
