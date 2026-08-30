@@ -275,10 +275,10 @@ class MonitorPlanStore:
                 """INSERT INTO monitor_plan(
                    target_uid,account_uid,advertiser_id,ad_id,plan_name,plan_system,promotion_scene,
                    official_status,monitor_enabled,lifecycle_state,collection_active,strategy_eligible,
-                   write_eligible,sync_state,budget_cent,official_modify_time,last_status_check_at,
+                   write_eligible,sync_state,budget_decimal,official_modify_time,last_status_check_at,
                    next_status_check_at,last_hot_collect_at,next_hot_collect_at,last_catalog_seen_at,
                    last_active_at,terminal_at,created_at,updated_at
-                   ) VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?,?,NULL,?,?,?,?,?,?,?,?,?,?)
+                   ) VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(target_uid) DO UPDATE SET
                      account_uid=excluded.account_uid,
                      plan_name=excluded.plan_name,
@@ -291,6 +291,7 @@ class MonitorPlanStore:
                      strategy_eligible=excluded.strategy_eligible,
                      write_eligible=excluded.write_eligible,
                      sync_state=excluded.sync_state,
+                     budget_decimal=excluded.budget_decimal,
                      official_modify_time=excluded.official_modify_time,
                      last_status_check_at=excluded.last_status_check_at,
                      next_status_check_at=excluded.next_status_check_at,
@@ -313,6 +314,7 @@ class MonitorPlanStore:
                     1 if collection_active else 0,
                     1 if collection_active else 0,
                     "TRUSTED",
+                    plan.budget_decimal,
                     plan.modify_time or None,
                     now,
                     next_status,
@@ -433,12 +435,13 @@ class PlanMonitorService:
 
         if plan.classification_status != "VERIFIED":
             self._writer.execute(
-                """UPDATE monitor_plan SET official_status=?,collection_active=0,strategy_eligible=0,
-                   write_eligible=0,lifecycle_state='WATCHING',sync_state='PLAN_CLASSIFICATION_CONFLICT',
-                   last_status_check_at=?,next_status_check_at=?,next_hot_collect_at=NULL,updated_at=?
-                   WHERE target_uid=?""",
+                """UPDATE monitor_plan SET official_status=?,budget_decimal=?,collection_active=0,
+                   strategy_eligible=0,write_eligible=0,lifecycle_state='WATCHING',
+                   sync_state='PLAN_CLASSIFICATION_CONFLICT',last_status_check_at=?,
+                   next_status_check_at=?,next_hot_collect_at=NULL,updated_at=? WHERE target_uid=?""",
                 (
                     plan.official_status or None,
+                    plan.budget_decimal,
                     now,
                     _iso(now_dt + timedelta(minutes=10)),
                     now,
@@ -452,7 +455,7 @@ class PlanMonitorService:
         next_hot = now if collection_active else None
         terminal_at = now if lifecycle == "TERMINAL" else None
         self._writer.execute(
-            """UPDATE monitor_plan SET plan_name=?,official_status=?,official_modify_time=?,
+            """UPDATE monitor_plan SET plan_name=?,official_status=?,budget_decimal=?,official_modify_time=?,
                lifecycle_state=?,collection_active=?,strategy_eligible=?,write_eligible=?,sync_state='TRUSTED',
                last_status_check_at=?,next_status_check_at=?,next_hot_collect_at=?,
                last_active_at=CASE WHEN ?=1 THEN ? ELSE last_active_at END,
@@ -461,6 +464,7 @@ class PlanMonitorService:
             (
                 plan.plan_name,
                 plan.official_status or None,
+                plan.budget_decimal,
                 plan.modify_time or None,
                 lifecycle,
                 1 if collection_active else 0,
