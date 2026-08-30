@@ -1,8 +1,9 @@
 """千川商业版 V1 本地 Runtime 入口。
 
-Phase 3 已接入只读素材/调控任务热采集和异常对象证据确认。应用启动本身不访问千川
-网络；只有用户显式读取，或激活有效且存在到期 WATCHING / ACTIVE_COLLECTING / 确认
-任务时，才由受控 Worker 发起官方 GET。所有千川投放业务 POST 仍被 OpenApiClient 禁止。
+Phase 3 已接入只读素材/调控任务热采集、异常对象证据确认、账户公平调度与单账户并发
+上限。应用启动本身不访问千川网络；只有用户显式读取，或激活有效且存在到期
+WATCHING / ACTIVE_COLLECTING / 确认任务时，才由受控 Worker 发起官方 GET。
+所有千川投放业务 POST 仍被 OpenApiClient 禁止。
 """
 from __future__ import annotations
 
@@ -19,8 +20,9 @@ from commercial_v1.qianchuan import (
     PLAN_STATUS_CHECK,
     AccountDiscoveryService,
     AccountStore,
+    AdvertiserConcurrencyGate,
+    FairHotCollectionScheduler,
     HotCollectionHandler,
-    HotCollectionScheduler,
     HotCollectionService,
     HotConfirmationHandler,
     HotConfirmationScheduler,
@@ -55,14 +57,7 @@ class RuntimeBlockedError(RuntimeError):
 
 
 class CommercialApplication:
-    """商业版应用容器。
-
-    启动顺序严格为：单实例 → 数据目录/Schema → DB Health → Writer → Recovery →
-    千川服务对象（无网络）→ Supervisor/Workers/Schedulers → Diagnostics。
-
-    激活状态不允许正常业务时，Scheduler 保持存活但不生成新业务 Job；已经排队的
-    Handler 也会先执行 LICENSE_BLOCKED，因此不会触发千川网络调用。
-    """
+    """商业版应用容器。"""
 
     def __init__(
         self,
@@ -88,11 +83,11 @@ class CommercialApplication:
         self.hot_workers: list[JobWorker] = []
         self.lease_recovery_worker: LeaseRecoveryWorker | None = None
         self.plan_state_scheduler: PlanStateScheduler | None = None
-        self.hot_collection_scheduler: HotCollectionScheduler | None = None
+        self.hot_collection_scheduler: FairHotCollectionScheduler | None = None
         self.hot_confirmation_scheduler: HotConfirmationScheduler | None = None
+        self.hot_account_gate: AdvertiserConcurrencyGate | None = None
         self.diagnostics: DiagnosticsService | None = None
 
-        # 千川服务对象。构造这些对象不得访问网络。
         self.open_api_client: OpenApiClient | None = None
         self.oauth_tokens: OAuthTokenProvider | None = None
         self.account_store: AccountStore | None = None
@@ -143,7 +138,7 @@ class CommercialApplication:
             recovery = StartupRecoveryService(database, writer, jobs)
             recovery_report = recovery.run()
 
-            # 服务对象构造：不得在这里触发 token 获取、账户发现或任何千川 GET。
+            # 这里只构造服务对象，禁止启动时主动访问千川网络。
             open_api_client = OpenApiClient()
             oauth_tokens = OAuthTokenProvider(database, writer, open_api_client)
             account_store = AccountStore(database, writer)
@@ -161,14 +156,12 @@ class CommercialApplication:
                 database, writer, monitor_plan_store, plan_monitor, business_allowed=business_allowed
             )
             plan_state_scheduler = PlanStateScheduler(database, writer, business_allowed=business_allowed)
+
             material_hot_handler = HotCollectionHandler(
                 hot_collection, writer, MATERIAL_5M, business_allowed=business_allowed
             )
             control_hot_handler = HotCollectionHandler(
                 hot_collection, writer, CONTROL_5M, business_allowed=business_allowed
-            )
-            hot_collection_scheduler = HotCollectionScheduler(
-                database, writer, business_allowed=business_allowed
             )
             material_confirmation_handler = HotConfirmationHandler(
                 hot_confirmation, MATERIAL_CONFIRM, business_allowed=business_allowed
@@ -176,25 +169,39 @@ class CommercialApplication:
             control_confirmation_handler = HotConfirmationHandler(
                 hot_confirmation, CONTROL_CONFIRM, business_allowed=business_allowed
             )
+
+            hot_collection_scheduler = FairHotCollectionScheduler(
+                database, writer, business_allowed=business_allowed
+            )
             hot_confirmation_scheduler = HotConfirmationScheduler(
                 database, writer, business_allowed=business_allowed
             )
+            hot_account_gate = AdvertiserConcurrencyGate(database, max_per_advertiser=2)
 
             job_worker = JobWorker(
-                jobs, handlers={PLAN_STATUS_CHECK: plan_state_handler}, instance_id="plan-state-worker"
+                jobs,
+                handlers={PLAN_STATUS_CHECK: plan_state_handler},
+                instance_id="plan-state-worker",
             )
-            # Phase 3 先用两个热读 Worker；同一池也消费 durable 确认任务，确认任务 priority=30
-            # 高于普通 5m 热采集 priority=40，避免异常对象长期带着不可信状态运行。
+
+            # 全局热读池 6；同一 advertiser 由共享 Gate 硬限制最多 2 个并发读取。
+            # Scheduler 先按账户轮转再分层 priority，避免 100 计划时头部账户霸占队列。
             hot_handlers = {
-                MATERIAL_5M: material_hot_handler,
-                CONTROL_5M: control_hot_handler,
-                MATERIAL_CONFIRM: material_confirmation_handler,
-                CONTROL_CONFIRM: control_confirmation_handler,
+                MATERIAL_5M: hot_account_gate.wrap(material_hot_handler),
+                CONTROL_5M: hot_account_gate.wrap(control_hot_handler),
+                MATERIAL_CONFIRM: hot_account_gate.wrap(material_confirmation_handler),
+                CONTROL_CONFIRM: hot_account_gate.wrap(control_confirmation_handler),
             }
             hot_workers = [
-                JobWorker(jobs, handlers=hot_handlers, instance_id=f"hot-read-worker-{index}")
-                for index in (1, 2)
+                JobWorker(
+                    jobs,
+                    handlers=hot_handlers,
+                    instance_id=f"hot-read-worker-{index}",
+                    lease_seconds=90,
+                )
+                for index in range(1, 7)
             ]
+
             lease_recovery = LeaseRecoveryWorker(jobs, DEFAULT_RECOVERY_POLICY)
             supervisor = RuntimeSupervisor()
             self.supervisor = supervisor
@@ -205,7 +212,7 @@ class CommercialApplication:
                     health=writer.health_snapshot, restart=None, critical=True,
                 )
             )
-            # Phase 2 已暴露 `job_worker` 诊断名；升级不能破坏既有契约。
+            # Phase 2 已暴露该诊断组件名；升级不能破坏旧契约。
             supervisor.register(
                 ComponentSpec(
                     name="job_worker", start=job_worker.start, stop=job_worker.stop,
@@ -250,7 +257,8 @@ class CommercialApplication:
             watchdog = RuntimeWatchdog(supervisor)
 
             def restart_watchdog() -> None:
-                watchdog.stop(); watchdog.start()
+                watchdog.stop()
+                watchdog.start()
 
             supervisor.register(
                 ComponentSpec(
@@ -278,6 +286,7 @@ class CommercialApplication:
             self.plan_state_scheduler = plan_state_scheduler
             self.hot_collection_scheduler = hot_collection_scheduler
             self.hot_confirmation_scheduler = hot_confirmation_scheduler
+            self.hot_account_gate = hot_account_gate
             self.diagnostics = diagnostics
 
             self.open_api_client = open_api_client
@@ -335,6 +344,8 @@ class CommercialApplication:
                 "job_recovery": dict(self.recovery_report.job_recovery),
                 "unresolved_execution_count": self.recovery_report.unresolved_execution_count,
             }
+        if self.hot_account_gate is not None:
+            result["hot_account_concurrency"] = self.hot_account_gate.snapshot()
         return result
 
     def __enter__(self) -> "CommercialApplication":
