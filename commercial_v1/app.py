@@ -1,8 +1,8 @@
 """千川商业版 V1 本地 Runtime 入口。
 
-Phase 3 已接入只读素材/调控任务热采集。应用启动本身不访问千川网络；只有用户显式
-读取，或激活有效且存在到期 WATCHING / ACTIVE_COLLECTING 计划时，才由受控 Worker
-发起官方 GET。所有千川投放业务 POST 仍被 OpenApiClient 禁止。
+Phase 3 已接入只读素材/调控任务热采集和异常对象证据确认。应用启动本身不访问千川
+网络；只有用户显式读取，或激活有效且存在到期 WATCHING / ACTIVE_COLLECTING / 确认
+任务时，才由受控 Worker 发起官方 GET。所有千川投放业务 POST 仍被 OpenApiClient 禁止。
 """
 from __future__ import annotations
 
@@ -13,13 +13,18 @@ from commercial_v1.diagnostics.service import DiagnosticsService
 from commercial_v1.license.runtime_state import LicenseRuntimeStateStore
 from commercial_v1.qianchuan import (
     CONTROL_5M,
+    CONTROL_CONFIRM,
     MATERIAL_5M,
+    MATERIAL_CONFIRM,
     PLAN_STATUS_CHECK,
     AccountDiscoveryService,
     AccountStore,
     HotCollectionHandler,
     HotCollectionScheduler,
     HotCollectionService,
+    HotConfirmationHandler,
+    HotConfirmationScheduler,
+    HotConfirmationService,
     MonitorPlanStore,
     OAuthTokenProvider,
     OpenApiClient,
@@ -84,6 +89,7 @@ class CommercialApplication:
         self.lease_recovery_worker: LeaseRecoveryWorker | None = None
         self.plan_state_scheduler: PlanStateScheduler | None = None
         self.hot_collection_scheduler: HotCollectionScheduler | None = None
+        self.hot_confirmation_scheduler: HotConfirmationScheduler | None = None
         self.diagnostics: DiagnosticsService | None = None
 
         # 千川服务对象。构造这些对象不得访问网络。
@@ -98,6 +104,9 @@ class CommercialApplication:
         self.hot_collection: HotCollectionService | None = None
         self.material_hot_handler: HotCollectionHandler | None = None
         self.control_hot_handler: HotCollectionHandler | None = None
+        self.hot_confirmation: HotConfirmationService | None = None
+        self.material_confirmation_handler: HotConfirmationHandler | None = None
+        self.control_confirmation_handler: HotConfirmationHandler | None = None
 
     @property
     def started(self) -> bool:
@@ -138,64 +147,49 @@ class CommercialApplication:
             open_api_client = OpenApiClient()
             oauth_tokens = OAuthTokenProvider(database, writer, open_api_client)
             account_store = AccountStore(database, writer)
-            account_discovery = AccountDiscoveryService(
-                open_api_client,
-                oauth_tokens,
-                account_store,
-            )
+            account_discovery = AccountDiscoveryService(open_api_client, oauth_tokens, account_store)
             plan_catalog = PlanCatalogService(open_api_client, oauth_tokens)
             monitor_plan_store = MonitorPlanStore(database, writer)
             plan_monitor = PlanMonitorService(plan_catalog, monitor_plan_store, writer)
-            hot_collection = HotCollectionService(
-                database,
-                writer,
-                open_api_client,
-                oauth_tokens,
-            )
+            hot_collection = HotCollectionService(database, writer, open_api_client, oauth_tokens)
+            hot_confirmation = HotConfirmationService(database, writer, open_api_client, oauth_tokens)
 
             def business_allowed() -> bool:
                 return license_state.get().normal_business_allowed
 
             plan_state_handler = PlanStateCheckHandler(
-                database,
-                writer,
-                monitor_plan_store,
-                plan_monitor,
-                business_allowed=business_allowed,
+                database, writer, monitor_plan_store, plan_monitor, business_allowed=business_allowed
             )
-            plan_state_scheduler = PlanStateScheduler(
-                database,
-                writer,
-                business_allowed=business_allowed,
-            )
+            plan_state_scheduler = PlanStateScheduler(database, writer, business_allowed=business_allowed)
             material_hot_handler = HotCollectionHandler(
-                hot_collection,
-                writer,
-                MATERIAL_5M,
-                business_allowed=business_allowed,
+                hot_collection, writer, MATERIAL_5M, business_allowed=business_allowed
             )
             control_hot_handler = HotCollectionHandler(
-                hot_collection,
-                writer,
-                CONTROL_5M,
-                business_allowed=business_allowed,
+                hot_collection, writer, CONTROL_5M, business_allowed=business_allowed
             )
             hot_collection_scheduler = HotCollectionScheduler(
-                database,
-                writer,
-                business_allowed=business_allowed,
+                database, writer, business_allowed=business_allowed
+            )
+            material_confirmation_handler = HotConfirmationHandler(
+                hot_confirmation, MATERIAL_CONFIRM, business_allowed=business_allowed
+            )
+            control_confirmation_handler = HotConfirmationHandler(
+                hot_confirmation, CONTROL_CONFIRM, business_allowed=business_allowed
+            )
+            hot_confirmation_scheduler = HotConfirmationScheduler(
+                database, writer, business_allowed=business_allowed
             )
 
-            # WATCHING 状态检查独立 Worker；热采集先保守使用两个并发 Worker，确保全局
-            # 并发最多 2，不会超过单账户 2 的安全上限。Phase 3 压测后再按账户公平扩容。
             job_worker = JobWorker(
-                jobs,
-                handlers={PLAN_STATUS_CHECK: plan_state_handler},
-                instance_id="plan-state-worker",
+                jobs, handlers={PLAN_STATUS_CHECK: plan_state_handler}, instance_id="plan-state-worker"
             )
+            # Phase 3 先用两个热读 Worker；同一池也消费 durable 确认任务，确认任务 priority=30
+            # 高于普通 5m 热采集 priority=40，避免异常对象长期带着不可信状态运行。
             hot_handlers = {
                 MATERIAL_5M: material_hot_handler,
                 CONTROL_5M: control_hot_handler,
+                MATERIAL_CONFIRM: material_confirmation_handler,
+                CONTROL_CONFIRM: control_confirmation_handler,
             }
             hot_workers = [
                 JobWorker(jobs, handlers=hot_handlers, instance_id=f"hot-read-worker-{index}")
@@ -207,94 +201,68 @@ class CommercialApplication:
 
             supervisor.register(
                 ComponentSpec(
-                    name="storage_writer",
-                    start=writer.start,
-                    stop=writer.close,
-                    health=writer.health_snapshot,
-                    restart=None,
-                    critical=True,
+                    name="storage_writer", start=writer.start, stop=writer.close,
+                    health=writer.health_snapshot, restart=None, critical=True,
                 )
             )
-            # `job_worker` 是 Phase 2 已对外暴露的诊断组件名。Phase 3 继续沿用，
-            # 避免升级后打破既有诊断/测试契约；其职责仍是 WATCHING 状态检查。
+            # Phase 2 已暴露 `job_worker` 诊断名；升级不能破坏既有契约。
             supervisor.register(
                 ComponentSpec(
-                    name="job_worker",
-                    start=job_worker.start,
-                    stop=job_worker.stop,
-                    health=job_worker.health_snapshot,
-                    restart=job_worker.restart,
-                    critical=True,
+                    name="job_worker", start=job_worker.start, stop=job_worker.stop,
+                    health=job_worker.health_snapshot, restart=job_worker.restart, critical=True,
                 )
             )
             for index, worker in enumerate(hot_workers, 1):
                 supervisor.register(
                     ComponentSpec(
-                        name=f"hot_read_worker_{index}",
-                        start=worker.start,
-                        stop=worker.stop,
-                        health=worker.health_snapshot,
-                        restart=worker.restart,
-                        critical=True,
+                        name=f"hot_read_worker_{index}", start=worker.start, stop=worker.stop,
+                        health=worker.health_snapshot, restart=worker.restart, critical=True,
                     )
                 )
             supervisor.register(
                 ComponentSpec(
-                    name="lease_recovery",
-                    start=lease_recovery.start,
-                    stop=lease_recovery.stop,
-                    health=lease_recovery.health_snapshot,
-                    restart=lease_recovery.restart,
-                    critical=True,
+                    name="lease_recovery", start=lease_recovery.start, stop=lease_recovery.stop,
+                    health=lease_recovery.health_snapshot, restart=lease_recovery.restart, critical=True,
                 )
             )
             supervisor.register(
                 ComponentSpec(
-                    name="plan_state_scheduler",
-                    start=plan_state_scheduler.start,
-                    stop=plan_state_scheduler.stop,
-                    health=plan_state_scheduler.health_snapshot,
-                    restart=plan_state_scheduler.restart,
-                    critical=True,
+                    name="plan_state_scheduler", start=plan_state_scheduler.start,
+                    stop=plan_state_scheduler.stop, health=plan_state_scheduler.health_snapshot,
+                    restart=plan_state_scheduler.restart, critical=True,
                 )
             )
             supervisor.register(
                 ComponentSpec(
-                    name="hot_collection_scheduler",
-                    start=hot_collection_scheduler.start,
-                    stop=hot_collection_scheduler.stop,
-                    health=hot_collection_scheduler.health_snapshot,
-                    restart=hot_collection_scheduler.restart,
-                    critical=True,
+                    name="hot_collection_scheduler", start=hot_collection_scheduler.start,
+                    stop=hot_collection_scheduler.stop, health=hot_collection_scheduler.health_snapshot,
+                    restart=hot_collection_scheduler.restart, critical=True,
+                )
+            )
+            supervisor.register(
+                ComponentSpec(
+                    name="hot_confirmation_scheduler", start=hot_confirmation_scheduler.start,
+                    stop=hot_confirmation_scheduler.stop, health=hot_confirmation_scheduler.health_snapshot,
+                    restart=hot_confirmation_scheduler.restart, critical=True,
                 )
             )
 
             watchdog = RuntimeWatchdog(supervisor)
 
             def restart_watchdog() -> None:
-                watchdog.stop()
-                watchdog.start()
+                watchdog.stop(); watchdog.start()
 
             supervisor.register(
                 ComponentSpec(
-                    name="watchdog",
-                    start=watchdog.start,
-                    stop=watchdog.stop,
-                    health=watchdog.health_snapshot,
-                    restart=restart_watchdog,
-                    critical=True,
+                    name="watchdog", start=watchdog.start, stop=watchdog.stop,
+                    health=watchdog.health_snapshot, restart=restart_watchdog, critical=True,
                 )
             )
             supervisor.start_all()
 
             diagnostics = DiagnosticsService(
-                database,
-                health_service,
-                writer,
-                jobs,
-                license_state,
-                supervisor=supervisor,
-                app_version=self._app_version,
+                database, health_service, writer, jobs, license_state,
+                supervisor=supervisor, app_version=self._app_version,
             )
 
             self.database = database
@@ -309,6 +277,7 @@ class CommercialApplication:
             self.lease_recovery_worker = lease_recovery
             self.plan_state_scheduler = plan_state_scheduler
             self.hot_collection_scheduler = hot_collection_scheduler
+            self.hot_confirmation_scheduler = hot_confirmation_scheduler
             self.diagnostics = diagnostics
 
             self.open_api_client = open_api_client
@@ -322,6 +291,9 @@ class CommercialApplication:
             self.hot_collection = hot_collection
             self.material_hot_handler = material_hot_handler
             self.control_hot_handler = control_hot_handler
+            self.hot_confirmation = hot_confirmation
+            self.material_confirmation_handler = material_confirmation_handler
+            self.control_confirmation_handler = control_confirmation_handler
 
             self._started = True
             return self
