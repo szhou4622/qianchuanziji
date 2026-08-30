@@ -1,8 +1,12 @@
-"""Phase 1 通用 Job Worker 与过期任务恢复 Worker。"""
+"""通用 Job Worker 与过期任务恢复 Worker。
+
+Job handler 可能包含分页网络读取，执行时间可能超过初始 lease。Worker 在 handler 运行期间
+主动 heartbeat，保证“任务仍在执行”和“租约仍有效”是一致事实；停止 heartbeat 后才允许
+complete/fail，避免长请求被 Recovery 误判为僵尸任务。
+"""
 from __future__ import annotations
 
 import threading
-import time
 import uuid
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -28,6 +32,8 @@ class JobWorker:
     ) -> None:
         if poll_seconds <= 0:
             raise ValueError("poll_seconds must be positive")
+        if lease_seconds < 3:
+            raise ValueError("lease_seconds must be at least 3")
         self._jobs = jobs
         self._handlers = dict(handlers)
         self._instance_id = instance_id or f"job-worker-{uuid.uuid4()}"
@@ -38,6 +44,7 @@ class JobWorker:
         self._last_error: str | None = None
         self._handled = 0
         self._failed = 0
+        self._heartbeat_failures = 0
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -61,6 +68,7 @@ class JobWorker:
             "alive": bool(self._thread and self._thread.is_alive()),
             "handled": self._handled,
             "failed": self._failed,
+            "heartbeat_failures": self._heartbeat_failures,
             "last_error": self._last_error,
             "job_types": sorted(self._handlers),
         }
@@ -76,14 +84,23 @@ class JobWorker:
         if job is None:
             return False
         handler = self._handlers[job.job_type]
+        heartbeat_stop = threading.Event()
+        heartbeat_thread = threading.Thread(
+            target=self._heartbeat_loop,
+            args=(job, heartbeat_stop),
+            name=f"{self._instance_id}-heartbeat",
+            daemon=True,
+        )
+        heartbeat_thread.start()
         try:
             result = handler(job)
-            self._jobs.complete(job, result or {})
         except StaleJobFencingToken:
+            self._stop_heartbeat(heartbeat_stop, heartbeat_thread)
             self._failed += 1
             self._last_error = "STALE_JOB_FENCING_TOKEN"
             return True
         except BaseException as exc:
+            self._stop_heartbeat(heartbeat_stop, heartbeat_thread)
             self._failed += 1
             self._last_error = sanitize_text(f"{type(exc).__name__}: {exc}")[:1000]
             try:
@@ -91,9 +108,36 @@ class JobWorker:
             except StaleJobFencingToken:
                 self._last_error = "STALE_JOB_FENCING_TOKEN"
             return True
+        self._stop_heartbeat(heartbeat_stop, heartbeat_thread)
+        try:
+            self._jobs.complete(job, result or {})
+        except StaleJobFencingToken:
+            self._failed += 1
+            self._last_error = "STALE_JOB_FENCING_TOKEN"
+            return True
         self._handled += 1
         self._last_error = None
         return True
+
+    def _heartbeat_loop(self, job: ClaimedJob, stop: threading.Event) -> None:
+        # 至少每 15 秒、且不晚于 lease 的 1/3 续租一次。
+        interval = max(1.0, min(15.0, self._lease_seconds / 3.0))
+        while not stop.wait(interval):
+            try:
+                self._jobs.heartbeat(job, lease_seconds=self._lease_seconds)
+            except StaleJobFencingToken:
+                # Recovery 已经取得新 fencing token，旧 worker 绝不能继续续租。
+                return
+            except BaseException as exc:
+                self._heartbeat_failures += 1
+                self._last_error = sanitize_text(f"HEARTBEAT_{type(exc).__name__}: {exc}")[:1000]
+                # 不在 heartbeat 线程里擅自重排业务 Job；主线程最终 complete/fail 会通过
+                # fencing 再做一次硬校验。
+
+    @staticmethod
+    def _stop_heartbeat(stop: threading.Event, thread: threading.Thread) -> None:
+        stop.set()
+        thread.join(timeout=2.0)
 
     def _run(self) -> None:
         while not self._stop.is_set():
