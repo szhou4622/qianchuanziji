@@ -65,3 +65,14 @@ def test_execution_attempt_is_unique_per_number(tmp_path: Path) -> None:
             conn.execute("INSERT INTO execution_attempt(attempt_id,execution_id,attempt_no,endpoint,request_hash,request_summary_json,started_at,transport_status,outcome) VALUES(?,?,?,?,?,?,?,?,?)", ("a2",)+values[1:])
     finally:
         conn.close()
+
+
+def test_schema_creation_is_atomic_on_ddl_failure(tmp_path: Path) -> None:
+    db = Database(DatabaseConfig(tmp_path / "runtime.db"))
+    conn = db.connect()
+    try:
+        with pytest.raises(sqlite3.OperationalError):
+            create_schema_v1(conn, schema_sql="CREATE TABLE should_rollback(id INTEGER); THIS IS INVALID SQL;")
+        assert "should_rollback" not in table_names(conn)
+    finally:
+        conn.close()
