@@ -30,6 +30,7 @@ from .contracts import (
 )
 from .errors import (
     OpenApiContractError,
+    OpenApiError,
     OpenApiNetworkError,
     OpenApiPermissionError,
     OpenApiRateLimitError,
@@ -187,18 +188,32 @@ class OpenApiClient:
         raise last_error
 
     def post_oauth(self, endpoint: str, payload: Mapping[str, Any]) -> ApiResponse:
+        """发送官方 OAuth token 请求。
+
+        access_token / refresh_token 两个官方端点使用
+        ``application/x-www-form-urlencoded``。该入口拒绝任何投放业务 POST。
+        OAuth POST 不做客户端自动重试，避免一次性 auth_code 被重复消费。
+        """
         if endpoint not in PHASE2_OAUTH_POST_ENDPOINTS:
             raise OpenApiContractError(
                 "Phase 2 forbids platform business POST endpoints",
                 code="PHASE2_POST_FORBIDDEN",
             )
         local_request_uid = str(uuid.uuid4())
-        body = json.dumps(dict(payload), ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        form_pairs = {
+            str(key): str(value)
+            for key, value in payload.items()
+            if value is not None and value != ""
+        }
+        body = urlencode(form_pairs).encode("utf-8")
         response = self._send(
             "POST",
             endpoint,
             query=None,
-            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "application/json",
+            },
             body=body,
             local_request_uid=local_request_uid,
         )
@@ -317,7 +332,7 @@ class OpenApiClient:
         return ""
 
     @staticmethod
-    def _business_error(response: ApiResponse) -> OpenApiResponseError:
+    def _business_error(response: ApiResponse) -> OpenApiError:
         code = str(response.code or "")
         message = sanitize_text(response.message or "official API business error")
         lowered = message.lower()
