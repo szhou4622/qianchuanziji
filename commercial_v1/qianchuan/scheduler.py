@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import threading
-import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
@@ -92,21 +91,36 @@ class PlanStateCheckHandler:
                updated_at=? WHERE target_uid=? AND monitor_enabled=1""",
             (now, next_check, now, target_uid),
         ).result(timeout=5)
-        # 错误详情写通用 error event，避免把网络异常伪装成官方状态。
+
+        # 错误详情写通用 error event，官方状态列仍保持服务器最后一次可信事实。
         try:
+            blocked = json.dumps(
+                [
+                    "EVALUATE_RETARGET",
+                    "EVALUATE_STOP",
+                    "CREATE_RETARGET",
+                    "PAUSE_CONTROL",
+                    "UPDATE_BUDGET",
+                    "UPDATE_DURATION",
+                ],
+                separators=(",", ":"),
+            )
             self._writer.execute(
                 """INSERT INTO api_error_event(
-                   error_event_id,advertiser_id,ad_id,endpoint,error_type,error_code,error_message,
-                   request_id,occurred_at,resolved_at,created_at
+                   error_id,module,error_scope,advertiser_id,ad_id,endpoint,http_status,api_code,
+                   request_id,error_type,message,retryable,blocked_capabilities_json,occurred_at,resolved_at
                    )
-                   SELECT ?,advertiser_id,ad_id,'PLAN_STATUS_CHECK',?,?,?,NULL,?,NULL,?
+                   SELECT ?,'qianchuan.plan_state',?,advertiser_id,ad_id,'PLAN_STATUS_CHECK',NULL,?,
+                          NULL,?,?,?, ?,?,NULL
                    FROM monitor_plan WHERE target_uid=?""",
                 (
                     str(uuid.uuid4()),
-                    type(exc).__name__,
+                    f"PLAN:{target_uid}",
                     str(getattr(exc, "code", "") or ""),
+                    type(exc).__name__,
                     message,
-                    now,
+                    1 if bool(getattr(exc, "retryable", False)) else 0,
+                    blocked,
                     now,
                     target_uid,
                 ),
