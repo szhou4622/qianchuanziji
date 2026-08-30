@@ -15,6 +15,13 @@ from .engine import (
     StrategyStore,
     StrategyVersion,
 )
+from .jobs import (
+    STRATEGY_CONTROL_EVALUATE,
+    STRATEGY_MATERIAL_EVALUATE,
+    StrategyEvaluationEnqueuer,
+    StrategyEvaluationHandler,
+    strategy_job_uid,
+)
 
 __all__ = [
     "CONTROL_FIELDS",
@@ -30,4 +37,9 @@ __all__ = [
     "StrategyEvaluator",
     "StrategyStore",
     "StrategyVersion",
+    "STRATEGY_CONTROL_EVALUATE",
+    "STRATEGY_MATERIAL_EVALUATE",
+    "StrategyEvaluationEnqueuer",
+    "StrategyEvaluationHandler",
+    "strategy_job_uid",
 ]
