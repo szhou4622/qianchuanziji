@@ -31,6 +31,9 @@ DEFAULT_RECOVERY_POLICY: dict[str, str] = {
     # 异常对象证据确认不是历史实时点；重启后必须继续完成，否则 Latest 会永久停在不可信状态。
     "MATERIAL_CONFIRM": "requeue",
     "CONTROL_CONFIRM": "requeue",
+    # 策略求值只消费已经落库的可信批次，使用确定性 HIT ID，可安全重放且不能丢。
+    "STRATEGY_MATERIAL_EVALUATE": "requeue",
+    "STRATEGY_CONTROL_EVALUATE": "requeue",
     # 可持续恢复的持久任务。
     "RECONCILE_EXECUTION": "requeue",
     "FEISHU_OUTBOX": "requeue",
@@ -79,7 +82,7 @@ class StartupRecoveryService:
         aborted = self._writer.transaction(abort_stale_collections).result(timeout=5)
         job_recovery = self._jobs.recover_expired(self._policy)
 
-        # 这里只读取，不改变 Execution 状态。后续 Phase 5 Reconciliation 根据这些状态做只读核验。
+        # 这里只读取，不改变 Execution 状态。后续执行阶段 Reconciliation 根据这些状态做只读核验。
         with self._database.connect(readonly=True) as conn:
             rows = conn.execute(
                 """SELECT execution_id
