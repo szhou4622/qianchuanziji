@@ -4,9 +4,21 @@
 
 ## 开发基线
 
-正式需求与架构以 `docs/baseline/` 下的 V1.2 Confirmed 文档为准。
+正式需求与架构以 V1.2 Confirmed 文档为准。
 
-当前开发阶段：**Phase 1：运行底座与新数据库**。
+仓库内已固化：
+
+- `docs/baseline/PHASE1_BASELINE.md`
+- `docs/phase1/PHASE1_GATE.md`
+
+## 当前状态
+
+```text
+PHASE_1_GATE = PASS
+当前阶段 = Phase 2：千川授权、账户与监控计划
+```
+
+Phase 1 已通过 Ubuntu / Windows × Python 3.11 / 3.12 CI Gate。
 
 核心原则：
 
@@ -19,21 +31,19 @@
 - V1 不支持商品级策略；
 - 激活服务器仅发生网络异常时，本地软件可正常使用 30 分钟，重复失败不得重新计时。
 
-## Phase 1
+## Phase 2
 
-阶段 1 只开发：
+当前按以下顺序开发：
 
-- Windows 单实例；
-- Runtime Supervisor；
-- SQLite WAL + FK + busy timeout；
-- 单 Writer；
-- Schema V1；
-- Migration / Backup；
-- Persistent Job；
-- Lease / Heartbeat / Fencing；
-- License Runtime State；
-- DPAPI / Redaction；
-- Diagnostics；
-- 异常退出恢复底座。
+```text
+Open API Client
+→ OAuth Token Provider
+→ Advertiser Discovery
+→ Account Identity
+→ Plan Catalog / Detail
+→ Four Plan Type Normalization
+→ Monitor Plan Lifecycle
+→ 10 分钟 WATCHING 状态检查
+```
 
-阶段 1 禁止真实千川 POST，禁止旧数据库迁移，禁止商品级策略。
+Phase 2 禁止任何千川投放业务写 POST。OAuth Token POST 只用于官方授权协议。
