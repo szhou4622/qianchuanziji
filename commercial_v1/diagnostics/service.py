@@ -153,6 +153,33 @@ class DiagnosticsService:
                 ).fetchall()
             ]
 
+            execution_status_counts = {
+                str(row["status"]): int(row["n"])
+                for row in conn.execute(
+                    "SELECT status,COUNT(*) AS n FROM execution_task GROUP BY status"
+                ).fetchall()
+            }
+            execution_queue = {
+                str(row["job_type"]): int(row["n"])
+                for row in conn.execute(
+                    """SELECT job_type,COUNT(*) AS n FROM background_job
+                       WHERE status IN('QUEUED','RUNNING')
+                         AND job_type IN('EXECUTION_PREPARE','EXECUTION_PREFLIGHT')
+                       GROUP BY job_type"""
+                ).fetchall()
+            }
+            execution_attempt_rows = int(conn.execute("SELECT COUNT(*) FROM execution_attempt").fetchone()[0])
+            recent_executions = [
+                dict(row)
+                for row in conn.execute(
+                    """SELECT execution_id,candidate_id,strategy_id,strategy_version_id,advertiser_id,ad_id,
+                              action_type,execution_mode,status,control_task_id,external_object_id,created_at,
+                              approved_at,submitted_at,confirmed_at,cancelled_at,cancel_reason,last_error_code,
+                              last_error_message
+                       FROM execution_task ORDER BY created_at DESC,execution_id DESC LIMIT 20"""
+                ).fetchall()
+            ]
+
             feishu_outbox_counts = {
                 str(row["status"]): int(row["n"])
                 for row in conn.execute(
@@ -229,6 +256,13 @@ class DiagnosticsService:
                 "queued_or_running": candidate_queue,
                 "status_counts": candidate_status_counts,
                 "recent_candidates": recent_candidates,
+            },
+            "execution": {
+                "status_counts": execution_status_counts,
+                "queued_or_running_by_type": execution_queue,
+                "execution_attempt_rows": execution_attempt_rows,
+                "business_post_enabled": False,
+                "recent_executions": recent_executions,
             },
             "feishu": {
                 "outbox_status_counts": feishu_outbox_counts,
