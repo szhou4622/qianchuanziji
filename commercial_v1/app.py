@@ -1,11 +1,18 @@
 """千川商业版 V1 本地 Runtime 入口。
 
-Phase 5 在 Phase 4 确定性策略 HIT 后接入独立候选冻结 Worker：只有未被优先级压制的有效
-HIT 才会进入候选构建；候选层冻结策略版本、指标快照、执行参数与对象集合，但仍不发飞书、
-不调用任何千川投放业务 POST。应用启动本身不访问千川网络。
+Phase 5 在确定性策略 HIT 后接入候选冻结、持久飞书确认与可选真实飞书长连接：
+- 候选层冻结策略版本、指标快照、执行参数与对象集合；
+- MANUAL 候选可幂等进入 Feishu Outbox；
+- 只有显式配置飞书且商业授权允许时，才建立飞书 WebSocket/发送确认卡；
+- 授权失效只停止飞书网络能力，不影响其他独立对象的本地历史与诊断；
+- 本阶段仍不调用任何千川投放业务 POST。
+
+未传入 ``feishu_config`` 时，应用启动不会访问飞书网络；构造千川服务对象本身也不主动访问
+千川网络。
 """
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +23,14 @@ from commercial_v1.candidate import (
     CandidateService,
 )
 from commercial_v1.diagnostics.service import DiagnosticsService
+from commercial_v1.feishu import (
+    CandidateFeishuNotifier,
+    FeishuCandidateCardService,
+    FeishuInboxService,
+    FeishuOutboxStore,
+    FeishuRuntimeConfig,
+    FeishuTransportManager,
+)
 from commercial_v1.license.runtime_state import LicenseRuntimeStateStore
 from commercial_v1.qianchuan import (
     CONTROL_5M,
@@ -58,7 +73,9 @@ from commercial_v1.strategy import (
     StrategyStore,
 )
 
-APP_VERSION = "0.5.0"
+APP_VERSION = "0.5.1"
+FeishuCandidateRouteResolver = Callable[[Mapping[str, Any]], str | None]
+FeishuChannelFactory = Callable[[FeishuRuntimeConfig], Any]
 
 
 class AlreadyRunningError(RuntimeError):
@@ -78,10 +95,16 @@ class CommercialApplication:
         data_dir: Path | None = None,
         app_version: str = APP_VERSION,
         mutex: GlobalUserMutex | None = None,
+        feishu_config: FeishuRuntimeConfig | None = None,
+        feishu_route_resolver: FeishuCandidateRouteResolver | None = None,
+        feishu_channel_factory: FeishuChannelFactory | None = None,
     ) -> None:
         self._data_dir = data_dir
         self._app_version = app_version
         self._mutex = mutex or GlobalUserMutex()
+        self._feishu_config = feishu_config
+        self._feishu_route_resolver = feishu_route_resolver
+        self._feishu_channel_factory = feishu_channel_factory
         self._started = False
 
         self.database: Database | None = None
@@ -127,6 +150,12 @@ class CommercialApplication:
         self.candidate_service: CandidateService | None = None
         self.candidate_enqueuer: CandidateBuildEnqueuer | None = None
         self.candidate_handler: CandidateBuildHandler | None = None
+
+        self.feishu_cards: FeishuCandidateCardService | None = None
+        self.feishu_outbox: FeishuOutboxStore | None = None
+        self.feishu_inbox: FeishuInboxService | None = None
+        self.candidate_feishu_notifier: CandidateFeishuNotifier | None = None
+        self.feishu_transport: FeishuTransportManager | None = None
 
     @property
     def started(self) -> bool:
@@ -181,8 +210,33 @@ class CommercialApplication:
             candidate_service = CandidateService(database, writer)
             candidate_enqueuer = CandidateBuildEnqueuer(jobs)
 
+            # 飞书持久化域始终可构造，且构造本身不联网。
+            feishu_cards = FeishuCandidateCardService(database, writer)
+            feishu_outbox = FeishuOutboxStore(database, writer)
+            feishu_inbox = FeishuInboxService(database, writer, candidate_service)
+            candidate_feishu_notifier = None
+            if self._feishu_route_resolver is not None:
+                candidate_feishu_notifier = CandidateFeishuNotifier(
+                    candidate_service,
+                    feishu_cards,
+                    self._feishu_route_resolver,
+                )
+
             def business_allowed() -> bool:
                 return license_state.get().normal_business_allowed
+
+            feishu_transport = None
+            if self._feishu_config is not None:
+                transport_kwargs: dict[str, Any] = {}
+                if self._feishu_channel_factory is not None:
+                    transport_kwargs["channel_factory"] = self._feishu_channel_factory
+                feishu_transport = FeishuTransportManager(
+                    self._feishu_config,
+                    feishu_inbox,
+                    feishu_outbox,
+                    business_allowed=business_allowed,
+                    **transport_kwargs,
+                )
 
             plan_state_handler = PlanStateCheckHandler(
                 database, writer, monitor_plan_store, plan_monitor, business_allowed=business_allowed
@@ -225,6 +279,11 @@ class CommercialApplication:
             candidate_handler = CandidateBuildHandler(
                 candidate_service,
                 business_allowed=business_allowed,
+                on_candidates_ready=(
+                    candidate_feishu_notifier.notify_candidates
+                    if candidate_feishu_notifier is not None
+                    else None
+                ),
             )
 
             hot_collection_scheduler = FairHotCollectionScheduler(
@@ -340,6 +399,18 @@ class CommercialApplication:
                     restart=hot_confirmation_scheduler.restart, critical=True,
                 )
             )
+            if feishu_transport is not None:
+                # 飞书失败只影响通知/确认能力，不得把独立的千川读取链路一起打死。
+                supervisor.register(
+                    ComponentSpec(
+                        name="feishu_transport",
+                        start=feishu_transport.start,
+                        stop=feishu_transport.stop,
+                        health=feishu_transport.health_snapshot,
+                        restart=feishu_transport.restart,
+                        critical=False,
+                    )
+                )
 
             watchdog = RuntimeWatchdog(supervisor)
 
@@ -356,8 +427,16 @@ class CommercialApplication:
             supervisor.start_all()
 
             diagnostics = DiagnosticsService(
-                database, health_service, writer, jobs, license_state,
-                supervisor=supervisor, app_version=self._app_version,
+                database,
+                health_service,
+                writer,
+                jobs,
+                license_state,
+                supervisor=supervisor,
+                app_version=self._app_version,
+                feishu_health=(
+                    feishu_transport.health_snapshot if feishu_transport is not None else None
+                ),
             )
 
             self.database = database
@@ -402,6 +481,12 @@ class CommercialApplication:
             self.candidate_service = candidate_service
             self.candidate_enqueuer = candidate_enqueuer
             self.candidate_handler = candidate_handler
+
+            self.feishu_cards = feishu_cards
+            self.feishu_outbox = feishu_outbox
+            self.feishu_inbox = feishu_inbox
+            self.candidate_feishu_notifier = candidate_feishu_notifier
+            self.feishu_transport = feishu_transport
 
             self._started = True
             return self
