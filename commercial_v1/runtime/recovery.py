@@ -36,6 +36,9 @@ DEFAULT_RECOVERY_POLICY: dict[str, str] = {
     "STRATEGY_CONTROL_EVALUATE": "requeue",
     # 候选构建只消费已经落库的 HIT，候选 ID/Item ID 确定性生成，可安全重放。
     "CANDIDATE_BUILD": "requeue",
+    # Execution PREPARE/PREFLIGHT 均为确定性幂等任务；PREFLIGHT 只读官方 GET。
+    "EXECUTION_PREPARE": "requeue",
+    "EXECUTION_PREFLIGHT": "requeue",
     # 可持续恢复的持久任务。
     "RECONCILE_EXECUTION": "requeue",
     "FEISHU_OUTBOX": "requeue",
