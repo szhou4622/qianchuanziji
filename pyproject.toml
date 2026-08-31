@@ -3,7 +3,9 @@ name = "qianchuanziji"
 version = "0.1.0"
 description = "千川商业版本地投放工具"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "lark-channel-sdk==1.0.0",
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
