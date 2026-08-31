@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from commercial_v1.app import CommercialApplication, RuntimeBlockedError
+from commercial_v1.candidate import CANDIDATE_BUILD
 from commercial_v1.qianchuan import (
     CONTROL_5M,
     CONTROL_CONFIRM,
@@ -27,7 +28,7 @@ class FakeMutex:
         self.closed = True
 
 
-def test_application_starts_fresh_database_and_exposes_phase4_services(tmp_path: Path) -> None:
+def test_application_starts_fresh_database_and_exposes_phase5_services(tmp_path: Path) -> None:
     mutex = FakeMutex()
     app = CommercialApplication(data_dir=tmp_path, mutex=mutex)  # type: ignore[arg-type]
     app.start()
@@ -58,6 +59,11 @@ def test_application_starts_fresh_database_and_exposes_phase4_services(tmp_path:
         assert app.control_strategy_handler is not None
         assert app.strategy_worker is not None
 
+        assert app.candidate_service is not None
+        assert app.candidate_enqueuer is not None
+        assert app.candidate_handler is not None
+        assert app.candidate_worker is not None
+
         snapshot = app.diagnostics_snapshot()
         assert snapshot["schema_version"] == 1
         assert snapshot["runtime"]["state"] == "RUNNING"
@@ -67,6 +73,8 @@ def test_application_starts_fresh_database_and_exposes_phase4_services(tmp_path:
         assert snapshot["hot_account_concurrency"]["max_per_advertiser"] == 2
         assert snapshot["strategy"]["enabled_strategies"] == 0
         assert snapshot["strategy"]["hit_rows"] == 0
+        assert snapshot["candidate"]["queued_or_running"] == 0
+        assert snapshot["candidate"]["status_counts"] == {}
 
         # `job_worker` 是 Phase 2 既有诊断契约，后续阶段不允许破坏。
         assert PLAN_STATUS_CHECK in snapshot["runtime"]["components"]["job_worker"]["job_types"]
@@ -85,8 +93,10 @@ def test_application_starts_fresh_database_and_exposes_phase4_services(tmp_path:
             STRATEGY_MATERIAL_EVALUATE,
             STRATEGY_CONTROL_EVALUATE,
         }
+        candidate_component = snapshot["runtime"]["components"]["candidate_worker"]
+        assert candidate_component["job_types"] == [CANDIDATE_BUILD]
 
-        # 未激活时三条网络 Scheduler 都不产生千川 Job；策略 Worker 也没有来源可消费。
+        # 未激活时网络 Scheduler 都不产生千川 Job，本地策略/候选也没有可信来源可消费。
         assert app.plan_state_scheduler.run_once() == 0
         assert app.hot_collection_scheduler.run_once()["enqueued"] == 0
         assert app.hot_confirmation_scheduler.run_once() == 0
@@ -97,6 +107,7 @@ def test_application_starts_fresh_database_and_exposes_phase4_services(tmp_path:
             assert conn.execute("SELECT COUNT(*) FROM background_job").fetchone()[0] == 0
             assert conn.execute("SELECT COUNT(*) FROM collection_batch").fetchone()[0] == 0
             assert conn.execute("SELECT COUNT(*) FROM strategy_hit").fetchone()[0] == 0
+            assert conn.execute("SELECT COUNT(*) FROM candidate_batch").fetchone()[0] == 0
     finally:
         app.stop()
     assert mutex.closed is True
