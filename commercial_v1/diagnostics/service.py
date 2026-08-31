@@ -4,7 +4,7 @@
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 from commercial_v1.license.runtime_state import LicenseRuntimeStateStore
 from commercial_v1.runtime.jobs import PersistentJobStore
@@ -13,6 +13,8 @@ from commercial_v1.security.redaction import redact
 from commercial_v1.storage.database import Database
 from commercial_v1.storage.health import DatabaseHealthService
 from commercial_v1.storage.writer import StorageWriter
+
+HealthProvider = Callable[[], dict[str, Any]]
 
 
 class DiagnosticsService:
@@ -26,6 +28,7 @@ class DiagnosticsService:
         *,
         supervisor: RuntimeSupervisor | None = None,
         app_version: str = "0.1.0",
+        feishu_health: HealthProvider | None = None,
     ) -> None:
         self._database = database
         self._health = health
@@ -34,6 +37,7 @@ class DiagnosticsService:
         self._license = license_state
         self._supervisor = supervisor
         self._app_version = app_version
+        self._feishu_health = feishu_health
 
     def snapshot(self) -> dict[str, Any]:
         db_health = self._health.check()
@@ -149,6 +153,35 @@ class DiagnosticsService:
                 ).fetchall()
             ]
 
+            feishu_outbox_counts = {
+                str(row["status"]): int(row["n"])
+                for row in conn.execute(
+                    "SELECT status,COUNT(*) AS n FROM feishu_outbox GROUP BY status"
+                ).fetchall()
+            }
+            feishu_inbox_counts = {
+                str(row["status"]): int(row["n"])
+                for row in conn.execute(
+                    "SELECT status,COUNT(*) AS n FROM feishu_inbox GROUP BY status"
+                ).fetchall()
+            }
+            recent_feishu_outbox = [
+                dict(row)
+                for row in conn.execute(
+                    """SELECT outbox_id,notification_type,route_id,related_candidate_id,related_execution_id,
+                              status,attempt_count,next_attempt_at,claim_owner,claim_expires_at,created_at,sent_at,
+                              last_error_message
+                       FROM feishu_outbox ORDER BY created_at DESC,outbox_id DESC LIMIT 20"""
+                ).fetchall()
+            ]
+            recent_feishu_inbox = [
+                dict(row)
+                for row in conn.execute(
+                    """SELECT inbox_id,event_id,event_type,received_at,status,processed_at,error_message
+                       FROM feishu_inbox ORDER BY received_at DESC,inbox_id DESC LIMIT 20"""
+                ).fetchall()
+            ]
+
         result: dict[str, Any] = {
             "app_version": self._app_version,
             "schema_version": db_health.schema_version,
@@ -197,11 +230,26 @@ class DiagnosticsService:
                 "status_counts": candidate_status_counts,
                 "recent_candidates": recent_candidates,
             },
+            "feishu": {
+                "outbox_status_counts": feishu_outbox_counts,
+                "inbox_status_counts": feishu_inbox_counts,
+                "recent_outbox": recent_feishu_outbox,
+                "recent_inbox": recent_feishu_inbox,
+            },
             "unresolved_executions": unresolved,
             "last_migration": dict(migration) if migration else None,
             "last_maintenance": dict(maintenance) if maintenance else None,
             "recent_errors": recent_errors,
         }
+        if self._feishu_health is not None:
+            try:
+                result["feishu"]["transport"] = self._feishu_health()
+            except BaseException as exc:
+                result["feishu"]["transport"] = {
+                    "configured": True,
+                    "ready": False,
+                    "health_error": type(exc).__name__,
+                }
         if self._supervisor is not None:
             result["runtime"] = self._supervisor.health_snapshot()
         return redact(result)
