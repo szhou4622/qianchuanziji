@@ -292,7 +292,6 @@ class FeishuOutboxStore:
 
     def mark_failed(self, claimed: ClaimedOutbox, error_message: str, *, retryable: bool = True) -> str:
         now_dt = self._clock().astimezone(timezone.utc)
-        now = _iso(now_dt)
         message = sanitize_text(str(error_message or "send failed"))[:1000]
         retry = retryable and claimed.attempt_count < self._max_attempts
         status = OUTBOX_RETRY if retry else OUTBOX_FAILED
@@ -415,7 +414,7 @@ class FeishuInboxService:
                 "UPDATE feishu_inbox SET status='PROCESSED',processed_at=?,error_message=NULL WHERE event_id=?",
                 (now, event),
             )
-            if decision.candidate_status == EXPIRED:
+            if decision.status == EXPIRED:
                 conn.execute(
                     """UPDATE notification_event SET delivery_status='EXPIRED',expired_at=?
                        WHERE channel='FEISHU' AND notification_type='CANDIDATE_CONFIRM' AND candidate_id=?""",
