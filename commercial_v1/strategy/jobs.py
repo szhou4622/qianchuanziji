@@ -2,6 +2,7 @@
 
 可信热采集完成后只在该计划确有启用策略时排本地策略任务；策略 Job 可重跑，因为 HIT
 使用确定性主键幂等落库。软件授权失效时不得继续产生新的策略结果。
+Phase 5 可通过回调把存在未压制 HIT 的结果交给独立候选构建队列。
 """
 from __future__ import annotations
 
@@ -11,11 +12,12 @@ from typing import Any
 
 from commercial_v1.runtime.jobs import ClaimedJob, PersistentJobStore
 
-from .engine import StrategyEvaluationService, StrategyStore
+from .engine import HIT, StrategyEvaluationService, StrategyStore
 
 STRATEGY_MATERIAL_EVALUATE = "STRATEGY_MATERIAL_EVALUATE"
 STRATEGY_CONTROL_EVALUATE = "STRATEGY_CONTROL_EVALUATE"
 BusinessAllowed = Callable[[], bool]
+EvaluatedBatchCallback = Callable[[str, str], Any]
 
 
 def _always_allowed() -> bool:
@@ -49,7 +51,6 @@ class StrategyEvaluationEnqueuer:
         else:
             return None
 
-        # 这里只读取本地策略配置，不访问千川网络。
         if not self._store.list_for_target(target_uid, object_type=object_type):
             return None
 
@@ -62,8 +63,6 @@ class StrategyEvaluationEnqueuer:
                 job_uid=uid,
             )
         except Exception:
-            # 确定性 job_uid 让重复 callback 幂等。只有数据库里确实已有同一 job 才吞掉
-            # UNIQUE 异常，其他持久化错误必须继续上抛。
             existing = self._jobs.get(uid)
             if existing is not None:
                 return uid
@@ -77,12 +76,14 @@ class StrategyEvaluationHandler:
         job_type: str,
         *,
         business_allowed: BusinessAllowed = _always_allowed,
+        on_evaluated_batch: EvaluatedBatchCallback | None = None,
     ) -> None:
         if job_type not in {STRATEGY_MATERIAL_EVALUATE, STRATEGY_CONTROL_EVALUATE}:
             raise ValueError("unsupported strategy evaluation job type")
         self._service = service
         self._job_type = job_type
         self._business_allowed = business_allowed
+        self._on_evaluated_batch = on_evaluated_batch
 
     def __call__(self, job: ClaimedJob) -> Mapping[str, Any]:
         target_uid = str(job.payload.get("target_uid") or "").strip()
@@ -99,6 +100,16 @@ class StrategyEvaluationHandler:
             result = self._service.evaluate_material_batch(target_uid, source_batch_id)
         else:
             result = self._service.evaluate_control_batch(target_uid, source_batch_id)
+
+        eligible_hits = sum(
+            1
+            for outcome in result.outcomes
+            if outcome.result == HIT and not outcome.suppression_reason
+        )
+        candidate_job_uid = None
+        if eligible_hits and self._on_evaluated_batch is not None:
+            candidate_job_uid = self._on_evaluated_batch(target_uid, source_batch_id)
+
         return {
             "target_uid": result.target_uid,
             "pipeline_type": result.pipeline_type,
@@ -109,4 +120,6 @@ class StrategyEvaluationHandler:
             "not_evaluable": result.not_evaluable,
             "persisted_hits": result.persisted_hits,
             "suppressed_hits": result.suppressed_hits,
+            "eligible_hits": eligible_hits,
+            "candidate_job_uid": candidate_job_uid,
         }
