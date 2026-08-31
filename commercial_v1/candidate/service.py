@@ -1,7 +1,11 @@
-"""Phase 5 候选冻结与本地确认状态机。
+"""Phase 5/6 候选冻结与本地确认状态机。
 
-候选层只消费 Phase 4 已持久化、未被优先级压制的 HIT。它不会访问千川网络，也不会
-执行任何平台 POST。候选一旦创建即冻结策略版本、指标快照、执行参数与对象集合。
+候选层只消费已持久化、未被优先级压制的 HIT。它不会执行任何平台 POST。
+候选一旦创建即冻结策略版本、指标快照、执行参数与对象集合。
+
+Phase 6 安全加固：所有控制任务类候选必须同时找到“与 strategy_hit.source_batch_id 完全一致”的
+TRUSTED control_task_latest，才能进入候选。这样预算/时长等后续写操作可以证明用户在候选
+生成后是否从千川后台手动修改过，而不会拿一个更晚或不可信的 Latest 冒充候选时基线。
 """
 from __future__ import annotations
 
@@ -9,7 +13,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Mapping
 
 from commercial_v1.storage.database import Database
 from commercial_v1.storage.writer import StorageWriter
@@ -26,6 +30,7 @@ CREATE_RETARGET = "CREATE_RETARGET"
 PAUSE_CONTROL = "PAUSE_CONTROL"
 UPDATE_BUDGET = "UPDATE_BUDGET"
 UPDATE_DURATION = "UPDATE_DURATION"
+CONTROL_ACTIONS = frozenset({PAUSE_CONTROL, UPDATE_BUDGET, UPDATE_DURATION})
 
 MANUAL = "MANUAL"
 AUTO = "AUTO"
@@ -66,6 +71,7 @@ class CandidateBuildSummary:
     skipped_active_guard: int
     skipped_reject_cooldown: int
     candidate_ids: tuple[str, ...]
+    skipped_missing_control_baseline: int = 0
 
 
 @dataclass(frozen=True)
@@ -141,7 +147,9 @@ class CandidateService:
         existing = 0
         skipped_guard = 0
         skipped_cooldown = 0
+        skipped_control_baseline = 0
         candidate_ids: list[str] = []
+        control_baselines: dict[str, dict[str, Any]] = {}
 
         for (_version_id, action_type, advertiser_id, ad_id), group_rows in grouped.items():
             first = group_rows[0]
@@ -166,6 +174,21 @@ class CandidateService:
                     if self._has_active_tool_retarget(advertiser_id, ad_id, material_id):
                         skipped_guard += 1
                         continue
+                elif action_type in CONTROL_ACTIONS:
+                    control_task_id = str(row["control_task_id"] or "").strip()
+                    if not control_task_id:
+                        raise CandidateStateError("control HIT is missing control_task_id")
+                    baseline = self._exact_control_baseline(
+                        advertiser_id,
+                        ad_id,
+                        control_task_id,
+                        batch,
+                    )
+                    if baseline is None:
+                        # 没有 exact-batch TRUSTED 服务器基线时，宁可不生成候选。
+                        skipped_control_baseline += 1
+                        continue
+                    control_baselines[object_uid] = baseline
                 eligible.append(row)
 
             if not eligible:
@@ -223,11 +246,17 @@ class CandidateService:
                     if inserted:
                         for item in items:
                             item_id = _hash("candidate_item_", candidate_id, str(item["object_uid"]))
-                            before_state = {
+                            before_state: dict[str, Any] = {
                                 "source_batch_id": batch,
                                 "source_collected_at": item["source_collected_at"],
                                 "condition_snapshot": json.loads(str(item["condition_snapshot_json"])),
                             }
+                            if action_type in CONTROL_ACTIONS:
+                                baseline = control_baselines.get(str(item["object_uid"]))
+                                if baseline is None:
+                                    raise CandidateStateError("control candidate lost exact baseline during freeze")
+                                before_state["control_state_snapshot"] = dict(baseline)
+                                before_state["control_state_baseline_complete"] = True
                             conn.execute(
                                 """INSERT INTO candidate_item(
                                    candidate_item_id,candidate_id,hit_id,object_uid,material_id,control_task_id,
@@ -263,6 +292,7 @@ class CandidateService:
             skipped_active_guard=skipped_guard,
             skipped_reject_cooldown=skipped_cooldown,
             candidate_ids=tuple(candidate_ids),
+            skipped_missing_control_baseline=skipped_control_baseline,
         )
 
     def approve(self, candidate_id: str) -> CandidateDecision:
@@ -357,6 +387,41 @@ class CandidateService:
             return CandidateDecision(candidate_id, REJECTED, True, expires_at, cooldown_until)
 
         return self._writer.transaction(work).result(timeout=5)
+
+    def _exact_control_baseline(
+        self,
+        advertiser_id: str,
+        ad_id: str,
+        control_task_id: str,
+        source_batch_id: str,
+    ) -> dict[str, Any] | None:
+        """返回与 HIT 来源批次完全相同的可信控制任务状态；否则 fail closed。"""
+        with self._database.connect(readonly=True) as conn:
+            row = conn.execute(
+                """SELECT control_task_id,official_task_status,budget_decimal,duration_decimal,
+                          bid_decimal,roi_goal_decimal,collected_at,batch_id,request_id,sync_state,
+                          strategy_eligible,write_eligible
+                   FROM control_task_latest
+                   WHERE advertiser_id=? AND ad_id=? AND control_task_id=? AND batch_id=?
+                     AND sync_state='TRUSTED'""",
+                (advertiser_id, ad_id, control_task_id, source_batch_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "control_task_id": str(row["control_task_id"]),
+            "official_task_status": row["official_task_status"],
+            "budget_decimal": row["budget_decimal"],
+            "duration_decimal": row["duration_decimal"],
+            "bid_decimal": row["bid_decimal"],
+            "roi_goal_decimal": row["roi_goal_decimal"],
+            "collected_at": row["collected_at"],
+            "batch_id": row["batch_id"],
+            "request_id": row["request_id"],
+            "sync_state": row["sync_state"],
+            "strategy_eligible": bool(row["strategy_eligible"]),
+            "write_eligible": bool(row["write_eligible"]),
+        }
 
     def _has_active_tool_retarget(self, advertiser_id: str, ad_id: str, material_id: str) -> bool:
         with self._database.connect(readonly=True) as conn:
