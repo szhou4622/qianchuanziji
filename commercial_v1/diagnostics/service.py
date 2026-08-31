@@ -99,6 +99,34 @@ class DiagnosticsService:
                 ).fetchone()
                 last_batches[pipeline] = dict(row) if row else None
 
+            strategy_enabled = int(
+                conn.execute("SELECT COUNT(*) FROM strategy_config WHERE enabled=1").fetchone()[0]
+            )
+            strategy_hits = int(conn.execute("SELECT COUNT(*) FROM strategy_hit").fetchone()[0])
+            strategy_suppressed = int(
+                conn.execute(
+                    "SELECT COUNT(*) FROM strategy_hit WHERE suppression_reason IS NOT NULL"
+                ).fetchone()[0]
+            )
+            strategy_queue = {
+                str(row["job_type"]): int(row["n"])
+                for row in conn.execute(
+                    """SELECT job_type,COUNT(*) AS n FROM background_job
+                       WHERE status IN('QUEUED','RUNNING')
+                         AND job_type IN('STRATEGY_MATERIAL_EVALUATE','STRATEGY_CONTROL_EVALUATE')
+                       GROUP BY job_type"""
+                ).fetchall()
+            }
+            recent_strategy_hits = [
+                dict(row)
+                for row in conn.execute(
+                    """SELECT hit_id,strategy_id,strategy_version_id,target_uid,object_type,object_uid,
+                              advertiser_id,ad_id,material_id,control_task_id,evaluated_at,result,
+                              suppression_reason,winner_strategy_id
+                       FROM strategy_hit ORDER BY evaluated_at DESC,hit_id DESC LIMIT 20"""
+                ).fetchall()
+            ]
+
         result: dict[str, Any] = {
             "app_version": self._app_version,
             "schema_version": db_health.schema_version,
@@ -134,6 +162,13 @@ class DiagnosticsService:
                 "material_untrusted_rows": material_untrusted,
                 "control_untrusted_rows": control_untrusted,
                 "last_batches": last_batches,
+            },
+            "strategy": {
+                "enabled_strategies": strategy_enabled,
+                "queued_or_running_by_type": strategy_queue,
+                "hit_rows": strategy_hits,
+                "suppressed_hit_rows": strategy_suppressed,
+                "recent_hits": recent_strategy_hits,
             },
             "unresolved_executions": unresolved,
             "last_migration": dict(migration) if migration else None,
