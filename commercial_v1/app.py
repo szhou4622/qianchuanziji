@@ -1,14 +1,20 @@
 """千川商业版 V1 本地 Runtime 入口。
 
-Phase 4 在 Phase 3 可信热采集后接入独立本地策略 Worker：只有可信 SUCCESS 批次且该计划
-确有启用策略时，才会排入确定性策略求值；策略层仍不创建候选、不发飞书、不调用任何
-千川投放业务 POST。应用启动本身不访问千川网络。
+Phase 5 在 Phase 4 确定性策略 HIT 后接入独立候选冻结 Worker：只有未被优先级压制的有效
+HIT 才会进入候选构建；候选层冻结策略版本、指标快照、执行参数与对象集合，但仍不发飞书、
+不调用任何千川投放业务 POST。应用启动本身不访问千川网络。
 """
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
+from commercial_v1.candidate import (
+    CANDIDATE_BUILD,
+    CandidateBuildEnqueuer,
+    CandidateBuildHandler,
+    CandidateService,
+)
 from commercial_v1.diagnostics.service import DiagnosticsService
 from commercial_v1.license.runtime_state import LicenseRuntimeStateStore
 from commercial_v1.qianchuan import (
@@ -52,7 +58,7 @@ from commercial_v1.strategy import (
     StrategyStore,
 )
 
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.5.0"
 
 
 class AlreadyRunningError(RuntimeError):
@@ -89,6 +95,7 @@ class CommercialApplication:
         self.job_worker: JobWorker | None = None
         self.hot_workers: list[JobWorker] = []
         self.strategy_worker: JobWorker | None = None
+        self.candidate_worker: JobWorker | None = None
         self.lease_recovery_worker: LeaseRecoveryWorker | None = None
         self.plan_state_scheduler: PlanStateScheduler | None = None
         self.hot_collection_scheduler: FairHotCollectionScheduler | None = None
@@ -116,6 +123,10 @@ class CommercialApplication:
         self.strategy_enqueuer: StrategyEvaluationEnqueuer | None = None
         self.material_strategy_handler: StrategyEvaluationHandler | None = None
         self.control_strategy_handler: StrategyEvaluationHandler | None = None
+
+        self.candidate_service: CandidateService | None = None
+        self.candidate_enqueuer: CandidateBuildEnqueuer | None = None
+        self.candidate_handler: CandidateBuildHandler | None = None
 
     @property
     def started(self) -> bool:
@@ -167,6 +178,9 @@ class CommercialApplication:
             strategy_evaluation = StrategyEvaluationService(database, writer, strategy_store)
             strategy_enqueuer = StrategyEvaluationEnqueuer(jobs, strategy_store)
 
+            candidate_service = CandidateService(database, writer)
+            candidate_enqueuer = CandidateBuildEnqueuer(jobs)
+
             def business_allowed() -> bool:
                 return license_state.get().normal_business_allowed
 
@@ -200,10 +214,16 @@ class CommercialApplication:
                 strategy_evaluation,
                 STRATEGY_MATERIAL_EVALUATE,
                 business_allowed=business_allowed,
+                on_evaluated_batch=candidate_enqueuer,
             )
             control_strategy_handler = StrategyEvaluationHandler(
                 strategy_evaluation,
                 STRATEGY_CONTROL_EVALUATE,
+                business_allowed=business_allowed,
+                on_evaluated_batch=candidate_enqueuer,
+            )
+            candidate_handler = CandidateBuildHandler(
+                candidate_service,
                 business_allowed=business_allowed,
             )
 
@@ -249,6 +269,14 @@ class CommercialApplication:
                 lease_seconds=60,
             )
 
+            # 候选冻结同样完全本地，与策略求值和后续 Execution 分层。
+            candidate_worker = JobWorker(
+                jobs,
+                handlers={CANDIDATE_BUILD: candidate_handler},
+                instance_id="candidate-worker",
+                lease_seconds=60,
+            )
+
             lease_recovery = LeaseRecoveryWorker(jobs, DEFAULT_RECOVERY_POLICY)
             supervisor = RuntimeSupervisor()
             self.supervisor = supervisor
@@ -277,6 +305,12 @@ class CommercialApplication:
                 ComponentSpec(
                     name="strategy_worker", start=strategy_worker.start, stop=strategy_worker.stop,
                     health=strategy_worker.health_snapshot, restart=strategy_worker.restart, critical=True,
+                )
+            )
+            supervisor.register(
+                ComponentSpec(
+                    name="candidate_worker", start=candidate_worker.start, stop=candidate_worker.stop,
+                    health=candidate_worker.health_snapshot, restart=candidate_worker.restart, critical=True,
                 )
             )
             supervisor.register(
@@ -336,6 +370,7 @@ class CommercialApplication:
             self.job_worker = job_worker
             self.hot_workers = hot_workers
             self.strategy_worker = strategy_worker
+            self.candidate_worker = candidate_worker
             self.lease_recovery_worker = lease_recovery
             self.plan_state_scheduler = plan_state_scheduler
             self.hot_collection_scheduler = hot_collection_scheduler
@@ -363,6 +398,10 @@ class CommercialApplication:
             self.strategy_enqueuer = strategy_enqueuer
             self.material_strategy_handler = material_strategy_handler
             self.control_strategy_handler = control_strategy_handler
+
+            self.candidate_service = candidate_service
+            self.candidate_enqueuer = candidate_enqueuer
+            self.candidate_handler = candidate_handler
 
             self._started = True
             return self
