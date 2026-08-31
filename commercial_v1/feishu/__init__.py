@@ -29,6 +29,7 @@ from .service import (
     FeishuStateError,
     InboxActionResult,
 )
+from .transport_manager import FeishuTransportManager
 
 __all__ = [
     "ACTION_APPROVE",
@@ -54,6 +55,7 @@ __all__ = [
     "FeishuRuntimeConfig",
     "FeishuChannelBridge",
     "FeishuOutboxWorker",
+    "FeishuTransportManager",
     "FeishuTransportError",
     "FeishuPermanentTransportError",
     "render_candidate_confirmation_card",
