@@ -1,0 +1,43 @@
+"""Phase 5 飞书确认域。"""
+
+from .service import (
+    ACTION_APPROVE,
+    ACTION_REJECT,
+    CANDIDATE_CONFIRM,
+    INBOX_FAILED,
+    INBOX_PROCESSED,
+    INBOX_RECEIVED,
+    OUTBOX_FAILED,
+    OUTBOX_QUEUED,
+    OUTBOX_RETRY,
+    OUTBOX_SENDING,
+    OUTBOX_SENT,
+    CandidateCardEnvelope,
+    ClaimedOutbox,
+    FeishuCandidateCardService,
+    FeishuInboxService,
+    FeishuOutboxStore,
+    FeishuStateError,
+    InboxActionResult,
+)
+
+__all__ = [
+    "ACTION_APPROVE",
+    "ACTION_REJECT",
+    "CANDIDATE_CONFIRM",
+    "INBOX_FAILED",
+    "INBOX_PROCESSED",
+    "INBOX_RECEIVED",
+    "OUTBOX_FAILED",
+    "OUTBOX_QUEUED",
+    "OUTBOX_RETRY",
+    "OUTBOX_SENDING",
+    "OUTBOX_SENT",
+    "CandidateCardEnvelope",
+    "ClaimedOutbox",
+    "FeishuCandidateCardService",
+    "FeishuInboxService",
+    "FeishuOutboxStore",
+    "FeishuStateError",
+    "InboxActionResult",
+]
