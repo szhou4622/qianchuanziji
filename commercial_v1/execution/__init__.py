@@ -1,5 +1,6 @@
 """Phase 6 Execution 域。"""
 
+from .hardened import ExecutionPreflightService, ExecutionService
 from .jobs import (
     EXECUTION_PREFLIGHT,
     EXECUTION_PREPARE,
@@ -15,9 +16,7 @@ from .service import (
     CANCELLED,
     EXECUTION_APPROVED,
     PENDING,
-    ExecutionPreflightService,
     ExecutionPreparation,
-    ExecutionService,
     ExecutionStateError,
     PreflightResult,
     execution_id_for_candidate,
