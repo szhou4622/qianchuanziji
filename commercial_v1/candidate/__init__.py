@@ -1,0 +1,48 @@
+"""Phase 5 候选冻结域。"""
+
+from .jobs import CANDIDATE_BUILD, CandidateBuildEnqueuer, CandidateBuildHandler, candidate_job_uid
+from .service import (
+    APPROVED,
+    AUTO,
+    CANCELLED,
+    CREATE_RETARGET,
+    EXPIRED,
+    MANUAL,
+    MAX_RETARGET_MATERIALS,
+    MERGED,
+    PAUSE_CONTROL,
+    REJECTED,
+    SEPARATE,
+    UPDATE_BUDGET,
+    UPDATE_DURATION,
+    WAITING_CONFIRMATION,
+    CandidateBuildSummary,
+    CandidateDecision,
+    CandidateService,
+    CandidateStateError,
+)
+
+__all__ = [
+    "APPROVED",
+    "AUTO",
+    "CANCELLED",
+    "CREATE_RETARGET",
+    "EXPIRED",
+    "MANUAL",
+    "MAX_RETARGET_MATERIALS",
+    "MERGED",
+    "PAUSE_CONTROL",
+    "REJECTED",
+    "SEPARATE",
+    "UPDATE_BUDGET",
+    "UPDATE_DURATION",
+    "WAITING_CONFIRMATION",
+    "CandidateBuildSummary",
+    "CandidateDecision",
+    "CandidateService",
+    "CandidateStateError",
+    "CANDIDATE_BUILD",
+    "CandidateBuildEnqueuer",
+    "CandidateBuildHandler",
+    "candidate_job_uid",
+]
