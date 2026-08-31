@@ -1,14 +1,14 @@
 """千川商业版 V1 本地 Runtime 入口。
 
-Phase 5 在确定性策略 HIT 后接入候选冻结、持久飞书确认与可选真实飞书长连接：
-- 候选层冻结策略版本、指标快照、执行参数与对象集合；
-- MANUAL 候选可幂等进入 Feishu Outbox；
-- 只有显式配置飞书且商业授权允许时，才建立飞书 WebSocket/发送确认卡；
-- 授权失效只停止飞书网络能力，不影响其他独立对象的本地历史与诊断；
-- 本阶段仍不调用任何千川投放业务 POST。
+Phase 6 在 Phase 5 候选/飞书确认之后接入安全 Execution 准备层：
+- APPROVED Candidate 通过 Durable Job 确定性冻结为 PENDING Execution；
+- 独立 Execution Worker 只使用官方 GET 做 Preflight；
+- 确定性过期事实只取消当前 Execution，网络/Token/契约失败保持 PENDING；
+- UPDATE_BUDGET/UPDATE_DURATION 的候选时预算/时长基线尚未补齐，因此继续保留 POST blocker；
+- 所有千川投放业务 POST 仍被 OpenApiClient 拦截，本阶段不创建 execution_attempt。
 
 未传入 ``feishu_config`` 时，应用启动不会访问飞书网络；构造千川服务对象本身也不主动访问
-千川网络。
+千川网络。Execution Scheduler 在 License 不允许正常业务时也不会排新任务。
 """
 from __future__ import annotations
 
@@ -23,6 +23,15 @@ from commercial_v1.candidate import (
     CandidateService,
 )
 from commercial_v1.diagnostics.service import DiagnosticsService
+from commercial_v1.execution import (
+    EXECUTION_PREFLIGHT,
+    EXECUTION_PREPARE,
+    ExecutionPreflightHandler,
+    ExecutionPreflightService,
+    ExecutionPrepareHandler,
+    ExecutionScheduler,
+    ExecutionService,
+)
 from commercial_v1.feishu import (
     CandidateFeishuNotifier,
     FeishuCandidateCardService,
@@ -73,7 +82,7 @@ from commercial_v1.strategy import (
     StrategyStore,
 )
 
-APP_VERSION = "0.5.1"
+APP_VERSION = "0.6.0"
 FeishuCandidateRouteResolver = Callable[[Mapping[str, Any]], str | None]
 FeishuChannelFactory = Callable[[FeishuRuntimeConfig], Any]
 
@@ -119,6 +128,8 @@ class CommercialApplication:
         self.hot_workers: list[JobWorker] = []
         self.strategy_worker: JobWorker | None = None
         self.candidate_worker: JobWorker | None = None
+        self.execution_worker: JobWorker | None = None
+        self.execution_scheduler: ExecutionScheduler | None = None
         self.lease_recovery_worker: LeaseRecoveryWorker | None = None
         self.plan_state_scheduler: PlanStateScheduler | None = None
         self.hot_collection_scheduler: FairHotCollectionScheduler | None = None
@@ -150,6 +161,11 @@ class CommercialApplication:
         self.candidate_service: CandidateService | None = None
         self.candidate_enqueuer: CandidateBuildEnqueuer | None = None
         self.candidate_handler: CandidateBuildHandler | None = None
+
+        self.execution_service: ExecutionService | None = None
+        self.execution_preflight: ExecutionPreflightService | None = None
+        self.execution_prepare_handler: ExecutionPrepareHandler | None = None
+        self.execution_preflight_handler: ExecutionPreflightHandler | None = None
 
         self.feishu_cards: FeishuCandidateCardService | None = None
         self.feishu_outbox: FeishuOutboxStore | None = None
@@ -209,6 +225,15 @@ class CommercialApplication:
 
             candidate_service = CandidateService(database, writer)
             candidate_enqueuer = CandidateBuildEnqueuer(jobs)
+
+            execution_service = ExecutionService(database, writer)
+            execution_preflight = ExecutionPreflightService(
+                database,
+                writer,
+                open_api_client,
+                oauth_tokens,
+                plan_catalog,
+            )
 
             # 飞书持久化域始终可构造，且构造本身不联网。
             feishu_cards = FeishuCandidateCardService(database, writer)
@@ -286,6 +311,20 @@ class CommercialApplication:
                 ),
             )
 
+            execution_prepare_handler = ExecutionPrepareHandler(
+                execution_service,
+                business_allowed=business_allowed,
+            )
+            execution_preflight_handler = ExecutionPreflightHandler(
+                execution_preflight,
+                business_allowed=business_allowed,
+            )
+            execution_scheduler = ExecutionScheduler(
+                database,
+                jobs,
+                business_allowed=business_allowed,
+            )
+
             hot_collection_scheduler = FairHotCollectionScheduler(
                 database, writer, business_allowed=business_allowed
             )
@@ -328,12 +367,24 @@ class CommercialApplication:
                 lease_seconds=60,
             )
 
-            # 候选冻结同样完全本地，与策略求值和后续 Execution 分层。
+            # 候选冻结同样完全本地，与策略求值和 Execution 分层。
             candidate_worker = JobWorker(
                 jobs,
                 handlers={CANDIDATE_BUILD: candidate_handler},
                 instance_id="candidate-worker",
                 lease_seconds=60,
+            )
+
+            # Phase 6 初期只开 1 个 Execution Worker。PREPARE 本地、PREFLIGHT 只读 GET；
+            # 先串行压低账户并发风险，未来真正 POST 会使用独立 Write Worker。
+            execution_worker = JobWorker(
+                jobs,
+                handlers={
+                    EXECUTION_PREPARE: execution_prepare_handler,
+                    EXECUTION_PREFLIGHT: execution_preflight_handler,
+                },
+                instance_id="execution-worker",
+                lease_seconds=120,
             )
 
             lease_recovery = LeaseRecoveryWorker(jobs, DEFAULT_RECOVERY_POLICY)
@@ -370,6 +421,19 @@ class CommercialApplication:
                 ComponentSpec(
                     name="candidate_worker", start=candidate_worker.start, stop=candidate_worker.stop,
                     health=candidate_worker.health_snapshot, restart=candidate_worker.restart, critical=True,
+                )
+            )
+            supervisor.register(
+                ComponentSpec(
+                    name="execution_worker", start=execution_worker.start, stop=execution_worker.stop,
+                    health=execution_worker.health_snapshot, restart=execution_worker.restart, critical=True,
+                )
+            )
+            supervisor.register(
+                ComponentSpec(
+                    name="execution_scheduler", start=execution_scheduler.start,
+                    stop=execution_scheduler.stop, health=execution_scheduler.health_snapshot,
+                    restart=execution_scheduler.restart, critical=True,
                 )
             )
             supervisor.register(
@@ -450,6 +514,8 @@ class CommercialApplication:
             self.hot_workers = hot_workers
             self.strategy_worker = strategy_worker
             self.candidate_worker = candidate_worker
+            self.execution_worker = execution_worker
+            self.execution_scheduler = execution_scheduler
             self.lease_recovery_worker = lease_recovery
             self.plan_state_scheduler = plan_state_scheduler
             self.hot_collection_scheduler = hot_collection_scheduler
@@ -481,6 +547,11 @@ class CommercialApplication:
             self.candidate_service = candidate_service
             self.candidate_enqueuer = candidate_enqueuer
             self.candidate_handler = candidate_handler
+
+            self.execution_service = execution_service
+            self.execution_preflight = execution_preflight
+            self.execution_prepare_handler = execution_prepare_handler
+            self.execution_preflight_handler = execution_preflight_handler
 
             self.feishu_cards = feishu_cards
             self.feishu_outbox = feishu_outbox
