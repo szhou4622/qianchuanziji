@@ -123,10 +123,12 @@ class ExecutionScheduler:
 
         for candidate_id in candidates:
             outcome = self._ensure_prepare(candidate_id)
-            result[outcome] += 1
+            if outcome is not None:
+                result[outcome] += 1
         for execution_id in executions:
             outcome = self._ensure_preflight(execution_id)
-            result[outcome] += 1
+            if outcome is not None:
+                result[outcome] += 1
 
         self._last_result = result
         self._last_error = None
@@ -140,32 +142,25 @@ class ExecutionScheduler:
             "retry_delay_seconds": self._retry_delay,
         }
 
-    def _ensure_prepare(self, candidate_id: str) -> str:
+    def _ensure_prepare(self, candidate_id: str) -> str | None:
         uid = execution_prepare_job_uid(candidate_id)
         existing = self._jobs.get(uid)
         if existing is None:
             self._enqueuer.prepare(candidate_id)
             return "prepare_enqueued"
-        if self._retryable_terminal(existing):
-            if self._jobs.requeue(uid):
-                return "prepare_requeued"
-        return "prepare_enqueued" if False else "prepare_requeued" if False else self._noop_key("prepare")
+        if self._retryable_terminal(existing) and self._jobs.requeue(uid):
+            return "prepare_requeued"
+        return None
 
-    def _ensure_preflight(self, execution_id: str) -> str:
+    def _ensure_preflight(self, execution_id: str) -> str | None:
         uid = execution_preflight_job_uid(execution_id)
         existing = self._jobs.get(uid)
         if existing is None:
             self._enqueuer.preflight(execution_id)
             return "preflight_enqueued"
-        if self._retryable_terminal(existing):
-            if self._jobs.requeue(uid):
-                return "preflight_requeued"
-        return self._noop_key("preflight")
-
-    @staticmethod
-    def _noop_key(kind: str) -> str:
-        # 调用方只统计真实 enqueue/requeue。用私有哨兵，run_once 会过滤。
-        return f"_{kind}_noop"
+        if self._retryable_terminal(existing) and self._jobs.requeue(uid):
+            return "preflight_requeued"
+        return None
 
     def _retryable_terminal(self, job: dict[str, Any]) -> bool:
         if str(job.get("status") or "").upper() not in {"FAILED", "SUCCESS", "BLOCKED"}:
@@ -178,8 +173,7 @@ class ExecutionScheduler:
     def _run(self) -> None:
         while not self._stop.is_set():
             try:
-                raw = self.run_once()
-                self._last_result = {key: value for key, value in raw.items() if not key.startswith("_")}
+                self.run_once()
             except BaseException as exc:
                 self._last_error = f"{type(exc).__name__}: {exc}"[:1000]
             self._stop.wait(self._interval)
