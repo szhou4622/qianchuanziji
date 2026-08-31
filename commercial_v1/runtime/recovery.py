@@ -34,6 +34,8 @@ DEFAULT_RECOVERY_POLICY: dict[str, str] = {
     # 策略求值只消费已经落库的可信批次，使用确定性 HIT ID，可安全重放且不能丢。
     "STRATEGY_MATERIAL_EVALUATE": "requeue",
     "STRATEGY_CONTROL_EVALUATE": "requeue",
+    # 候选构建只消费已经落库的 HIT，候选 ID/Item ID 确定性生成，可安全重放。
+    "CANDIDATE_BUILD": "requeue",
     # 可持续恢复的持久任务。
     "RECONCILE_EXECUTION": "requeue",
     "FEISHU_OUTBOX": "requeue",
@@ -82,7 +84,6 @@ class StartupRecoveryService:
         aborted = self._writer.transaction(abort_stale_collections).result(timeout=5)
         job_recovery = self._jobs.recover_expired(self._policy)
 
-        # 这里只读取，不改变 Execution 状态。后续执行阶段 Reconciliation 根据这些状态做只读核验。
         with self._database.connect(readonly=True) as conn:
             rows = conn.execute(
                 """SELECT execution_id
