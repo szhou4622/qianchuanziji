@@ -118,6 +118,44 @@ class PersistentJobStore:
             conn.execute("UPDATE background_job SET status='FAILED',error_message=?,finished_at=?,updated_at=?,lease_owner=NULL,lease_expires_at=NULL WHERE job_uid=? AND fencing_token=?", (error_message, now_text, now_text, job.job_uid, job.fencing_token))
         self._writer.transaction(work).result(timeout=5)
 
+    def requeue(
+        self,
+        job_uid: str,
+        *,
+        due_at: datetime | None = None,
+        allowed_statuses: Iterable[str] = ("FAILED", "SUCCESS", "BLOCKED"),
+    ) -> bool:
+        """显式重排一个已结束 Durable Job。
+
+        这里只提供原语，不决定哪些 job_type 可安全重放。调用方必须只对确定性/幂等任务使用。
+        RUNNING 永远不能由该方法抢回；实时 5 分钟任务也不应调用它。
+        """
+        allowed = tuple(dict.fromkeys(str(value).upper() for value in allowed_statuses))
+        if not allowed:
+            raise ValueError("allowed_statuses cannot be empty")
+        uid = str(job_uid or "").strip()
+        if not uid:
+            raise ValueError("job_uid is required")
+        now_text = _iso(self._clock())
+        due_text = _iso(due_at or self._clock())
+        placeholders = ",".join("?" for _ in allowed)
+
+        def work(conn):
+            row = conn.execute("SELECT status FROM background_job WHERE job_uid=?", (uid,)).fetchone()
+            if row is None:
+                return False
+            if str(row["status"]).upper() not in allowed:
+                return False
+            changed = conn.execute(
+                f"""UPDATE background_job SET status='QUEUED',due_at=?,lease_owner=NULL,
+                    lease_expires_at=NULL,started_at=NULL,finished_at=NULL,result_json=NULL,error_message=NULL,
+                    updated_at=? WHERE job_uid=? AND status IN ({placeholders})""",
+                (due_text, now_text, uid, *allowed),
+            ).rowcount
+            return changed == 1
+
+        return bool(self._writer.transaction(work).result(timeout=5))
+
     def recover_expired(self, recovery_policy: Mapping[str, str]) -> dict[str, int]:
         """未配置 job_type 默认 block，避免误补实时任务。"""
         now_text = _iso(self._clock())
