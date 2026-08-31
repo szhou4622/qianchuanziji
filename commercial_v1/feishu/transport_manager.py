@@ -64,8 +64,6 @@ class FeishuTransportManager:
         with self._lock:
             if self._thread is not None and self._thread.is_alive():
                 return
-            if self._thread is not None:
-                raise RuntimeError("FeishuTransportManager cannot be restarted after stop")
             self._stop.clear()
             self._thread = threading.Thread(
                 target=self._run,
@@ -76,11 +74,19 @@ class FeishuTransportManager:
 
     def stop(self, *, timeout: float = 15.0) -> None:
         self._stop.set()
-        thread = self._thread
+        with self._lock:
+            thread = self._thread
         if thread is not None:
             thread.join(timeout)
             if thread.is_alive():
                 raise TimeoutError("FeishuTransportManager did not stop within timeout")
+        with self._lock:
+            if self._thread is thread:
+                self._thread = None
+
+    def restart(self) -> None:
+        self.stop()
+        self.start()
 
     def health_snapshot(self) -> dict[str, Any]:
         with self._lock:
