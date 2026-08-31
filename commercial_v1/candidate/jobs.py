@@ -1,4 +1,4 @@
-"""Phase 5 候选构建 Durable Job。
+"""Phase 5/6 候选构建 Durable Job。
 
 策略求值完成后排本地候选构建任务；候选构建不会访问千川网络，也不会执行平台 POST。
 候选持久化成功后可触发一个可选的本地通知桥接（例如写入 Feishu Outbox）。通知桥接本身
@@ -85,8 +85,6 @@ class CandidateBuildHandler:
         result = self._service.build_from_source_batch(target_uid, source_batch_id)
         notification = None
         if self._on_candidates_ready is not None and result.candidate_ids:
-            # CandidateService 自身按 fingerprint INSERT OR IGNORE；通知层也必须幂等。
-            # 因此 Durable Job 在这里失败后整体重跑，不会重复生成候选/确认卡。
             notification = _result_payload(self._on_candidates_ready(result.candidate_ids))
         return {
             "target_uid": result.target_uid,
@@ -96,6 +94,7 @@ class CandidateBuildHandler:
             "existing_candidates": result.existing_candidates,
             "skipped_active_guard": result.skipped_active_guard,
             "skipped_reject_cooldown": result.skipped_reject_cooldown,
+            "skipped_missing_control_baseline": result.skipped_missing_control_baseline,
             "candidate_ids": list(result.candidate_ids),
             "notification": notification,
         }
