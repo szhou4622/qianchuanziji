@@ -116,7 +116,7 @@ class CandidateService:
             if batch_row is None:
                 raise ValueError("candidate source must be a trusted successful hot batch")
             rows = conn.execute(
-                """SELECT h.*,c.execution_mode,c.enabled,
+                """SELECT h.*,c.action_type AS action_type,c.execution_mode,c.enabled,
                           v.action_config_json,v.grouping_mode,v.content_hash
                    FROM strategy_hit h
                    JOIN strategy_config c ON c.strategy_id=h.strategy_id
