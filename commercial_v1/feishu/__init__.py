@@ -1,5 +1,14 @@
 """Phase 5 飞书确认域。"""
 
+from .candidate_notifier import CandidateFeishuNotifier, CandidateNotifySummary
+from .channel_adapter import (
+    FeishuChannelBridge,
+    FeishuOutboxWorker,
+    FeishuPermanentTransportError,
+    FeishuRuntimeConfig,
+    FeishuTransportError,
+    render_candidate_confirmation_card,
+)
 from .service import (
     ACTION_APPROVE,
     ACTION_REJECT,
@@ -40,4 +49,12 @@ __all__ = [
     "FeishuOutboxStore",
     "FeishuStateError",
     "InboxActionResult",
+    "CandidateFeishuNotifier",
+    "CandidateNotifySummary",
+    "FeishuRuntimeConfig",
+    "FeishuChannelBridge",
+    "FeishuOutboxWorker",
+    "FeishuTransportError",
+    "FeishuPermanentTransportError",
+    "render_candidate_confirmation_card",
 ]
