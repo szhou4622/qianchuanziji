@@ -127,6 +127,28 @@ class DiagnosticsService:
                 ).fetchall()
             ]
 
+            candidate_status_counts = {
+                str(row["status"]): int(row["n"])
+                for row in conn.execute(
+                    "SELECT status,COUNT(*) AS n FROM candidate_batch GROUP BY status"
+                ).fetchall()
+            }
+            candidate_queue = int(
+                conn.execute(
+                    """SELECT COUNT(*) FROM background_job
+                       WHERE status IN('QUEUED','RUNNING') AND job_type='CANDIDATE_BUILD'"""
+                ).fetchone()[0]
+            )
+            recent_candidates = [
+                dict(row)
+                for row in conn.execute(
+                    """SELECT candidate_id,strategy_id,strategy_version_id,action_type,advertiser_id,ad_id,
+                              execution_mode,grouping_mode,status,created_at,expires_at,approved_at,rejected_at,
+                              reject_cooldown_until,cancelled_at,cancel_reason
+                       FROM candidate_batch ORDER BY created_at DESC,candidate_id DESC LIMIT 20"""
+                ).fetchall()
+            ]
+
         result: dict[str, Any] = {
             "app_version": self._app_version,
             "schema_version": db_health.schema_version,
@@ -169,6 +191,11 @@ class DiagnosticsService:
                 "hit_rows": strategy_hits,
                 "suppressed_hit_rows": strategy_suppressed,
                 "recent_hits": recent_strategy_hits,
+            },
+            "candidate": {
+                "queued_or_running": candidate_queue,
+                "status_counts": candidate_status_counts,
+                "recent_candidates": recent_candidates,
             },
             "unresolved_executions": unresolved,
             "last_migration": dict(migration) if migration else None,
