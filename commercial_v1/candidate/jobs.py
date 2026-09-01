@@ -94,7 +94,11 @@ class CandidateBuildHandler:
             "existing_candidates": result.existing_candidates,
             "skipped_active_guard": result.skipped_active_guard,
             "skipped_reject_cooldown": result.skipped_reject_cooldown,
-            "skipped_missing_control_baseline": result.skipped_missing_control_baseline,
+            # Phase 6 增加了该统计字段；保留默认值兼容旧测试桩和第三方适配层，
+            # 不让一个纯诊断字段破坏候选持久化/飞书通知主链路。
+            "skipped_missing_control_baseline": int(
+                getattr(result, "skipped_missing_control_baseline", 0) or 0
+            ),
             "candidate_ids": list(result.candidate_ids),
             "notification": notification,
         }
