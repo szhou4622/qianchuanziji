@@ -1996,7 +1996,7 @@
     "qcsckp-desktop/production_v1a_frontend/package-lock.json": "仅更新 vite/nanoid/source-map-js 三个已有范围内安全补丁；npm audit 清零",
     "qcsckp-desktop/production_v1a_frontend/dist/assets/index-BnjA7w5f.js": "重建 CSV 修复对应的前端资源，新摘要文件替换旧构建",
     "qcsckp-desktop/production_v1a_frontend/dist/index.html": "引用修复后构建的 JS 资源，保持 UI 不变",
-    "qcsckp-desktop/services/local_feishu_bridge.py": "绑定撤销代际及 POST/PATCH 发送前检查；事件原子去重与编辑回执同事务；相同卡片内容去重和队列故障恢复",
+    "qcsckp-desktop/services/local_feishu_bridge.py": "绑定撤销代际及 POST/PATCH 发送前检查；事件原子去重与编辑回执同事务；相同卡片内容去重和队列故障恢复；按工具账号配置拒绝/过期提醒冷却，基于既有终态历史在创建事务内抑制重复卡片，保留界面与执行行为",
     "qcsckp-desktop/services/official_api_reconciliation.py": "预算对账兼容历史未记录素材集合，创建任务仍严格比对冻结素材",
     "qcsckp-desktop/services/operation_daily_report.py": "定时日报向发件箱传稳定日键，重试复用 UUID；保留手动重发",
     "qcsckp-desktop/services/product_rule_engine.py": "商品累计 ROI 使用累计消耗，缺失/无效聚合指标保留未知",
