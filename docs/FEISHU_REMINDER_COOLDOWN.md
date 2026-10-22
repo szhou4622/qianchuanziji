@@ -16,6 +16,8 @@
 
 配置保存在应用当前数据目录的 `feishu_local_profiles.json`，位于 `profiles.<当前工具账号>.reminder_cooldown_minutes`。不要替换整个文件或修改其他账号、群、绑定与加密凭据。手动编辑时先退出程序，只增加或修改这一字段，保存为 UTF-8 后重开程序。下面仅示意字段位置，不是可覆盖整个配置文件的模板：
 
+Windows 正式渠道的默认路径是 `%LOCALAPPDATA%\QCSCKP\channels\production\data\feishu_local_profiles.json`。如果启动环境配置了 `QCSCKP_HOME` 或 `QCSCKP_DATA_DIR`，以实际数据目录为准；其他渠道使用各自的 `channels/<渠道>/data`，不要编辑另一渠道的配置。
+
 ```json
 {
   "profiles": {
