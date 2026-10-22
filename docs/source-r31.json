@@ -1987,6 +1987,8 @@
     }
   ],
   "documented_changes": {
-    ".gitignore": "保留原规则并补充本仓库 CI 报告和凭据排除规则"
+    ".gitignore": "保留原规则并补充本仓库 CI 报告和凭据排除规则",
+    "qcsckp-desktop/tests/test_sparse_report_completeness.py": "CI 移植测试夹具：通过 PATH 查找 Node，缺失时明确失败，去除开发者私有绝对路径；断言不变",
+    "qcsckp-desktop/tests/test_r20_startup_lifecycle.py": "CI 移植测试夹具：临时目录先 resolve，保证 Windows 短路径和解析后路径使用同一标识；断言不变"
   }
 }

@@ -31,6 +31,7 @@ qcsckp-desktop/.codex-*.log
 
 # Collaboration CI and private local state
 /desktop-tests-report.txt
+/desktop-tests-*.txt
 *.dpapi
 *.pfx
 *.p12

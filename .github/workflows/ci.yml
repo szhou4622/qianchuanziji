@@ -21,8 +21,13 @@ jobs:
           python-version: '3.12'
       - run: python -B tools/check_repository.py
   desktop-tests:
+    needs: repository-checks
     runs-on: windows-latest
     timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
     defaults:
       run:
         working-directory: qcsckp-desktop
@@ -31,20 +36,29 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Match the supported China desktop timezone
+        run: |
+          tzutil /s "China Standard Time"
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot set runner timezone' }
+          python -c "from datetime import datetime; assert datetime.fromtimestamp(1700000000).strftime('%Y-%m-%d %H:%M:%S') == '2023-11-15 06:13:20'"
       - name: Install locked dependencies
         run: |
           python -m pip install uv
           uv sync --frozen --no-install-project
       - name: Run isolated desktop regression suite
-        run: uv run --no-sync python -B scripts/run_isolated_tests.py discover -s tests -v --report ../desktop-tests-report.txt
+        run: uv run --no-sync python -B ../tools/run_desktop_ci.py --shard ${{ matrix.shard }} --shards 4 --report ../desktop-tests-${{ matrix.shard }}.txt
       - name: Preserve test evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: desktop-tests-report
-          path: desktop-tests-report.txt
+          name: desktop-tests-${{ matrix.shard }}
+          path: desktop-tests-${{ matrix.shard }}.txt
           if-no-files-found: warn
   frontend-build:
+    needs: repository-checks
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -60,6 +74,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run build
   php-lint:
+    needs: repository-checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

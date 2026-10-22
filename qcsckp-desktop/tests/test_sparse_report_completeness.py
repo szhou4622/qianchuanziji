@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import json
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -84,7 +85,8 @@ class SparseReportTests(unittest.TestCase):
         html=(Path(__file__).resolve().parents[1]/'static/dashboard.html').read_text(encoding='utf-8')
         body=re.search(r'function formatFreshness\(state\) \{[\s\S]*?\n        \}',html).group(0)
         js=body+"\nconst s={newestAt:'2026-09-11 00:30:48',metricQuality:'sparse_report',reportedMaterialCount:57,noReportMaterialCount:165,dataAgeSeconds:60,collectionStatus:'complete'}; if(formatFreshness(s).text!=='数据正常 · 1分钟前')throw Error('bad compact status'); s.dataAgeSeconds=900;if(!formatFreshness(s).text.startsWith('数据延迟'))throw Error('age hidden'); s.collectionStatus='failed';if(!formatFreshness(s).text.startsWith('采集异常'))throw Error('error hidden');"
-        node=Path('C:/Users/EDY/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node.exe')
+        node=shutil.which('node')
+        self.assertIsNotNone(node, 'Node.js must be installed for frontend execution checks')
         result=subprocess.run([str(node),'-e',js],capture_output=True,text=True,encoding='utf-8')
         self.assertEqual(0,result.returncode,result.stderr)
 

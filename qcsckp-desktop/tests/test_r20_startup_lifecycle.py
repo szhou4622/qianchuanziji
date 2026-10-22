@@ -172,7 +172,7 @@ class StartupLifecycleTests(unittest.TestCase):
 class DependencyRepairTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="qcsckp-r20-deps-")
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.entries = []
         for name in bootstrap.REQUIRED_MANAGED_DEPENDENCIES:
             target = self.root / name
