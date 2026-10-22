@@ -36,7 +36,7 @@ jobs:
           python -m pip install uv
           uv sync --frozen --no-install-project
       - name: Run isolated desktop regression suite
-        run: uv run --no-sync python -B scripts/run_isolated_tests.py --report ../desktop-tests-report.txt
+        run: uv run --no-sync python -B scripts/run_isolated_tests.py discover -s tests -v --report ../desktop-tests-report.txt
       - name: Preserve test evidence
         if: always()
         uses: actions/upload-artifact@v4
