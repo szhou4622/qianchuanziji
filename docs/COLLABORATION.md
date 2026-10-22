@@ -28,7 +28,7 @@
 ## 检查边界
 
 - `repository-checks`：协作文件、来源摘要、运行数据/秘密文件、体积和冲突标记。
-- `desktop-tests`：Windows / Python 3.12 完整隔离 unittest，阻断外网。
+- `desktop-tests`：Windows / Python 3.12 / China Standard Time / Node 22 完整隔离 unittest，阻断外网；四组覆盖全部模块，任一组失败均阻止合并。
 - `frontend-build`：Node 22、npm 锁定依赖、TypeScript 与 Vite 构建。
 - `php-lint`：所有受版本管理 PHP 文件语法，不执行请求。
 - `ci-gate`：四项必须 success，不接受 skipped/cancelled/failure。
