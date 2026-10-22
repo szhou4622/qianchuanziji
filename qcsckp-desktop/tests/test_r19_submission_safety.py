@@ -189,6 +189,30 @@ class SubmissionSafetyTests(unittest.TestCase):
         self.run_stop()
         self.assertEqual(1, self.http.call_count)
 
+    def test_invalid_post_response_is_unknown_and_cannot_repost(self):
+        reply = Reply()
+        reply.read = lambda: b"not-json"
+        self.http.side_effect = None
+        self.http.return_value = reply
+        self.assertEqual("submitted_verifying", self.run_stop().step)
+        self.assertEqual("unknown", json.loads(self.intent()["payload_json"])["submission_phase"])
+        self.run_stop()
+        self.assertEqual(1, self.http.call_count)
+
+    def test_post_requires_a_valid_business_envelope(self):
+        from services.qianchuan_open_api.errors import ApiWriteOutcomeUnknown
+        for raw in (b"", b"[]", b"null", b"\xff", b"<html>bad gateway</html>", b"{}",
+                    b'{"data": {}}', b'{"code": null}', b'{"code": false}', b'{"code": ""}'):
+            with self.subTest(raw=raw):
+                reply = Reply()
+                reply.read = lambda: raw
+                self.http.side_effect = None
+                self.http.return_value = reply
+                self.http.reset_mock()
+                with self.assertRaises(ApiWriteOutcomeUnknown):
+                    self.client.post("/open_api/v1.0/test/", {})
+                self.http.assert_called_once()
+
     def test_stale_sending_intent_recovery_cannot_repost(self):
         row, reserved = reconciliation.reserve_execution_intent(
             task_uid=self.claim["task_uid"], action_type="stop", aavid=1001, ad_id=2001,
@@ -279,6 +303,7 @@ class SubmissionSafetyTests(unittest.TestCase):
             "services.qianchuan_open_api.runtime.get_official_api_service", return_value=self.service
         ), patch.object(self.service, "list_control_tasks", return_value=([{
             "task_id": "3001", "scene": "MATERIAL_ADD_BUDGET", "status": "PROCESSING", "duration": 24,
+            "material_ids": ["4001"],
         }], [])):
             return asyncio.run(worker._execute_budget_increase_task(task, self.db))
 
@@ -306,6 +331,32 @@ class SubmissionSafetyTests(unittest.TestCase):
         self.assertEqual(["budget", "duration"], data["completed_steps"])
         self.assertEqual(200, data["budget"])
         self.assertEqual(26, data["duration"])
+        self.assertEqual(["4001"], data["material_ids"])
+
+    def test_budget_reconciliation_checks_frozen_materials_and_legacy_omission(self):
+        self.run_budget()
+        row = self.db.select_one("execution_reconciliation", where={"action_type": "budget"})
+        data = json.loads(row["payload_json"])
+        for materials, action, expected_success in ((["4001"], "budget", True),
+                                                    (["other"], "budget", False),
+                                                    (None, "budget", True),
+                                                    (None, "retarget", False)):
+            with self.subTest(materials=materials, action=action):
+                payload = dict(data)
+                if materials is None:
+                    payload.pop("material_ids", None)
+                else:
+                    payload["material_ids"] = materials
+                candidate = {**row, "action_type": action, "payload_json": json.dumps(payload)}
+                with patch("services.official_api_execution._find_control_task", return_value={
+                    "task_id": "3001", "ad_id": "2001", "material_ids": ["4001"], "budget": 200, "duration": 26,
+                }), patch.object(reconciliation, "get_official_api_service", return_value=self.service), patch.object(
+                    reconciliation, "_finish"
+                ) as finish, patch.object(reconciliation, "_retry") as retry:
+                    reconciliation._verify_one(self.db, candidate)
+                self.assertEqual(expected_success, finish.called)
+                self.assertEqual(not expected_success, retry.called)
+        self.assertEqual(2, self.http.call_count)
 
 
 if __name__ == "__main__":

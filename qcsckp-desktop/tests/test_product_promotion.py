@@ -1848,6 +1848,7 @@ class ProductPromotionTests(unittest.TestCase):
             {
                 "id": "m1",
                 "costDiff": 100,
+                "currentCost": 100,
                 "netAmount": 300,
                 "overallAmount": 400,
                 "overallShowCount": 1000,
@@ -1857,6 +1858,7 @@ class ProductPromotionTests(unittest.TestCase):
             {
                 "id": "m2",
                 "costDiff": 200,
+                "currentCost": 200,
                 "netAmount": 300,
                 "overallAmount": 600,
                 "overallShowCount": 1000,

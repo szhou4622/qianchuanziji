@@ -6,6 +6,7 @@ import csv
 import io
 import json
 import uuid
+from utils.csv_safety import spreadsheet_cell
 from datetime import date, timedelta
 from typing import Any
 
@@ -91,7 +92,7 @@ class OperationReportService:
         )
         for row in rows:
             writer.writerow(
-                [
+                [spreadsheet_cell(value) for value in [
                     row["event_time_beijing"],
                     row["account_name"],
                     row["aavid"],
@@ -101,7 +102,7 @@ class OperationReportService:
                     row["result_status"],
                     row["control_task_id"],
                     row["error_message"],
-                ]
+                ]]
             )
         return b"\xef\xbb\xbf" + output.getvalue().encode("utf-8")
 

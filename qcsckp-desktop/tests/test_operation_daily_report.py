@@ -144,7 +144,7 @@ class OperationDailyReportTests(unittest.TestCase):
         data.update(values)
         self.store.insert("account_operation_event", data)
 
-    def _send(self, card, *, targets=None):
+    def _send(self, card, *, targets=None, task_uid="", delivery_stage=""):
         self.sent.append({"card": card, "targets": targets})
         receive_type, receive_id = targets[0]
         return [
@@ -350,6 +350,31 @@ class OperationDailyReportTests(unittest.TestCase):
         )
         self.assertEqual("claimed", first)
         self.assertEqual("in_progress", second)
+
+    def test_scheduler_retry_reuses_the_original_outbox_after_lost_receipt(self):
+        from services import local_feishu_bridge as bridge
+        self._save_enabled()
+        actual = bridge.LocalFeishuBridge('tool-user')
+        posted = []
+        def request(method, path, **kwargs):
+            posted.append(kwargs['payload'])
+            if len(posted) <= 2:
+                raise TimeoutError('accepted but reply lost')
+            return {'data': {'message_id': 'receipt-' + kwargs['payload']['uuid']}}
+        with patch.object(bridge, 'DB_FILE', self.db_path), patch.object(bridge, 'PROFILE_FILE', os.path.join(self.temp.name, 'profiles.json')), patch.object(
+            daily, 'send_local_feishu_bound_card', side_effect=actual.send_bound_card
+        ), patch.object(actual, '_request', side_effect=request):
+            bridge._update_profile('tool-user', {'authorized_open_id': 'ou_owner'})
+            daily.run_operation_daily_report_scheduler_once(now=datetime(2026, 7, 28, 9, 5), database=self.db_path)
+            first = self.store.execute("SELECT outbox_uid,payload_json FROM feishu_outbox", fetch=True)
+            self.assertEqual(2, len(first))
+            self.store.execute("UPDATE feishu_outbox SET next_attempt_at='2000-01-01 00:00:00'")
+            retry = daily.run_operation_daily_report_scheduler_once(now=datetime(2026, 7, 28, 9, 6), database=self.db_path)
+            self.assertTrue(retry['success'], retry)
+            final = self.store.execute("SELECT * FROM feishu_outbox", fetch=True)
+            self.assertEqual(2, len(final))
+            self.assertTrue(all(r['status'] == 'sent' for r in final))
+            self.assertEqual(posted[:2], posted[2:])
 
     def test_manual_send_can_be_repeated_for_testing(self):
         self._save_enabled()

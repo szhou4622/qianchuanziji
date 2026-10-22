@@ -130,6 +130,7 @@ class CardReceiptsTests(unittest.TestCase):
     def test_task_changes_during_patch_queues_latest_without_create(self):
         with patch.object(self.actual,'_request',return_value={'data':{'message_id':'msg'}}):
             uid=self.create();self.actual._deliver_outbox_once()
+        self.store.update('local_retarget_task',{'status':'executing'},where={'task_uid':uid})
         calls=[]
         def patch_call(method,path,**kwargs):
             calls.append(method)
@@ -164,7 +165,8 @@ class CardReceiptsTests(unittest.TestCase):
 
     def test_multiple_recipients_require_receipts_for_every_message(self):
         uid=self.create()
-        self.store.update('local_retarget_task',{'card_messages_json':json.dumps([{'message_id':'one'},{'message_id':'two'}])},where={'task_uid':uid})
+        self.store.update('local_retarget_task',{'card_messages_json':json.dumps([
+            {'message_id': mid, 'receive_type':'open_id', 'receive_id':'personal'} for mid in ('one','two')])},where={'task_uid':uid})
         self.store.insert('execution_reconciliation',{'reconciliation_uid':'multi','account_username':self.owner,
             'task_uid':uid,'action_type':'stop','idempotency_key':'multi','status':'confirmed_succeeded'})
         with patch.object(self.actual,'_request',return_value={}):

@@ -53,6 +53,7 @@ _OUTBOX_LEASE_OWNER = f"feishu-outbox-{uuid.uuid4().hex}"
 # Direct PATCHes and durable retries share the same per-message ordering lane.
 # Stripes keep memory bounded while also serializing bridge instances for an owner.
 _CARD_UPDATE_LOCKS = tuple(threading.RLock() for _ in range(64))
+_AUDIENCE_LOCKS = tuple(threading.RLock() for _ in range(64))
 _INITIAL_DELIVERY_PROTOCOL = 2
 _MAX_DELIVERY_ATTEMPTS = 8
 _UUID_RETRY_MINUTES = 50
@@ -127,6 +128,13 @@ def promote_reconciled_local_claim(connection: Any, intent_row: Mapping[str, Any
     return updated.rowcount == 1
 
 
+class _InboxClaim(str):
+    def __new__(cls, event_id: str, attempt: int):
+        claim = super().__new__(cls, event_id)
+        claim.attempt = attempt
+        return claim
+
+
 def _inbox_begin(
     account_username: str,
     event_id: str,
@@ -140,39 +148,35 @@ def _inbox_begin(
         # calls without one still use the in-memory message guard, but must not
         # poison the durable dedupe namespace with a synthesized reusable ID.
         return f"volatile:{uuid.uuid4().hex}"
-    init_sqlite_schema()
-    store = SQLiteStore()
+    init_sqlite_schema(database=DB_FILE)
+    store = SQLiteStore(database=DB_FILE)
     stable_id = raw_event_id
-    existing = store.select_one(
-        "feishu_inbox",
-        where={"account_username": _account_key(account_username), "event_id": stable_id},
-    )
-    if existing and str(existing.get("status") or "") == "processed":
-        return None
-    row = {
-        "account_username": _account_key(account_username),
-        "event_id": stable_id,
-        "event_type": str(event_type or ""),
-        "payload_json": _json(payload),
-        "payload_hash": hashlib.sha256(_json(payload).encode("utf-8")).hexdigest(),
-        "status": "processing",
-        "attempt_count": int((existing or {}).get("attempt_count") or 0) + 1,
-        "last_error": "",
-    }
-    store.insert_or_update(
-        "feishu_inbox",
-        row,
-        unique_fields=["account_username", "event_id"],
-    )
-    return stable_id
+    with store.transaction() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        existing = store.select_one("feishu_inbox", where={
+            "account_username": _account_key(account_username), "event_id": stable_id}, connection=connection)
+        if existing:
+            if existing.get("status") == "processed":
+                return None
+            touched = _parse_dt(existing.get("updated_at"))
+            if existing.get("status") == "processing" and touched and (_now() - touched).total_seconds() < 300:
+                return None
+        attempt = int((existing or {}).get("attempt_count") or 0) + 1
+        row = {"account_username": _account_key(account_username), "event_id": stable_id,
+               "event_type": str(event_type or ""), "payload_json": _json(payload),
+               "payload_hash": hashlib.sha256(_json(payload).encode("utf-8")).hexdigest(),
+               "status": "processing", "attempt_count": attempt, "last_error": "", "updated_at": _dt(_now())}
+        store.insert_or_update("feishu_inbox", row, unique_fields=["account_username", "event_id"], connection=connection)
+    return _InboxClaim(stable_id, attempt)
 
 
-def _inbox_finish(account_username: str, event_id: str, *, error: str = "") -> None:
+def _inbox_finish(account_username: str, event_id: str, *, error: str = "", connection=None) -> None:
     if not event_id or str(event_id).startswith("volatile:"):
         return
-    SQLiteStore().execute(
+    SQLiteStore(database=DB_FILE).execute(
         "UPDATE feishu_inbox SET status=?,last_error=?,processed_at=?,updated_at=? "
-        "WHERE account_username=? AND event_id=?",
+        "WHERE account_username=? AND event_id=? AND status<>'processed' "
+        "AND (? IS NULL OR attempt_count=?)",
         (
             "failed" if error else "processed",
             str(error or "")[:1000],
@@ -180,7 +184,9 @@ def _inbox_finish(account_username: str, event_id: str, *, error: str = "") -> N
             _dt(_now()),
             _account_key(account_username),
             str(event_id),
+            getattr(event_id, "attempt", None), getattr(event_id, "attempt", None),
         ),
+        connection=connection,
     )
 
 
@@ -316,16 +322,67 @@ def _profile_for(username: str, *, include_secret: bool = False) -> Dict[str, An
     return profile
 
 
-def _update_profile(username: str, changes: Dict[str, Any]) -> Dict[str, Any]:
+def _audience_lock(username: str):
+    lane = int(hashlib.sha256(_account_key(username).encode()).hexdigest()[:8], 16) % len(_AUDIENCE_LOCKS)
+    return _AUDIENCE_LOCKS[lane]
+
+
+def _bound_audience(profile: Mapping[str, Any]) -> set:
+    # Account-specific routes intentionally ignore the global send switches.
+    targets = {("chat_id", str(g.get("chat_id") or "")) for g in profile.get("groups") or [] if isinstance(g, dict)}
+    for kind, field in (("open_id", "authorized_open_id"), ("chat_id", "personal_chat_id")):
+        if profile.get(field):
+            targets.add((kind, str(profile[field])))
+    return targets
+
+
+class AudienceRevokedError(RuntimeError):
+    """An old delivery must stop, not be redirected or retried."""
+
+
+def _audience_snapshot(owner: str, kind: str, recipient: str) -> Dict[str, Any]:
+    profile = _profile_for(owner)
+    key = kind + ":" + recipient
+    bound = (kind, recipient) in _bound_audience(profile)
+    epochs = profile.get("recipient_epochs") or {}
+    if not bound and (epochs.get(key) or (profile.get("audience_epoch") and not profile.get("authorized_open_id"))):
+        raise AudienceRevokedError("飞书收件授权已撤销")
+    return {"receive_type": kind, "receive_id": recipient, "bound": bound,
+            "epoch": int(profile.get("audience_epoch") or 0), "recipient_epoch": int(epochs.get(key) or 0)}
+
+
+def _check_audience(owner: str, audience: Mapping[str, Any]) -> None:
+    kind, recipient = str(audience.get("receive_type") or ""), str(audience.get("receive_id") or "")
+    profile = _profile_for(owner)
+    epochs = profile.get("recipient_epochs") or {}
+    if (not kind or not recipient
+        or int(audience.get("epoch") or 0) != int(profile.get("audience_epoch") or 0)
+        or int(audience.get("recipient_epoch") or 0) != int(epochs.get(kind + ":" + recipient) or 0)
+        or (audience.get("bound", kind in {"open_id", "chat_id"}) and (kind, recipient) not in _bound_audience(profile))):
+        raise AudienceRevokedError("飞书收件授权已撤销，旧卡片不再投递或更新")
+
+
+def _update_profile(username: str, changes: Dict[str, Any], *, revoke_all: bool = False) -> Dict[str, Any]:
     key = _account_key(username)
     if not key:
         raise RuntimeError("请先登录工具账号")
-    with PROFILE_LOCK:
+    # No database lock is held here. A return from revocation means all older
+    # network starts have completed; in-flight requests cannot be retracted.
+    with _audience_lock(key), PROFILE_LOCK:
         data = _load_profiles()
         profiles = data.setdefault("profiles", {})
         current = profiles.get(key)
         profile = dict(current) if isinstance(current, dict) else {}
+        before = dict(profile)
         profile.update(changes)
+        epochs = dict(before.get("recipient_epochs") or {})
+        for kind, recipient in _bound_audience(before) - _bound_audience(profile):
+            marker = kind + ":" + recipient
+            epochs[marker] = int(epochs.get(marker) or 0) + 1
+        profile["recipient_epochs"] = epochs
+        reset = (revoke_all or (before.get("authorized_open_id") and before.get("authorized_open_id") != profile.get("authorized_open_id"))
+                 or (before.get("app_id") and before.get("app_id") != profile.get("app_id")))
+        profile["audience_epoch"] = int(before.get("audience_epoch") or 0) + int(bool(reset))
         profile["updated_at"] = _dt(_now())
         profiles[key] = profile
         _save_profiles(data)
@@ -447,7 +504,8 @@ def _task_row(task_uid: str, account_username: str = "") -> Optional[Dict[str, A
 
 
 def _merge_task_message(connection: Any, owner: str, task_uid: str, *,
-                        receive_type: str, receive_id: str, message_id: str) -> None:
+                        receive_type: str, receive_id: str, message_id: str,
+                        audience: Optional[Dict[str, Any]] = None) -> None:
     row = connection.execute(
         "SELECT card_messages_json FROM local_retarget_task WHERE task_uid=? AND account_username=?",
         (task_uid, owner),
@@ -457,7 +515,8 @@ def _merge_task_message(connection: Any, owner: str, task_uid: str, *,
     messages = _loads(row[0], [])
     messages = messages if isinstance(messages, list) else []
     if not any(isinstance(item, dict) and item.get("message_id") == message_id for item in messages):
-        messages.append({"receive_type": receive_type, "receive_id": receive_id, "message_id": message_id})
+        messages.append({"receive_type": receive_type, "receive_id": receive_id, "message_id": message_id,
+                         **({"audience": audience} if audience is not None else {})})
         connection.execute(
             "UPDATE local_retarget_task SET card_messages_json=?,updated_at=? WHERE task_uid=? AND account_username=?",
             (_json(messages), _dt(_now()), task_uid, owner),
@@ -484,6 +543,7 @@ def _insert_initial_deliveries(connection: Any, owner: str, task: Dict[str, Any]
     for kind, recipient in targets:
         uid = hashlib.sha256(f"{owner}|{task['task_uid']}|initial|{kind}|{recipient}".encode()).hexdigest()
         payload = {
+            "audience": _audience_snapshot(owner, kind, recipient),
             "delivery_protocol": _INITIAL_DELIVERY_PROTOCOL,
             "task_uid": task["task_uid"], "delivery_stage": "initial",
             "delivery_uuid": uuid.uuid4().hex, "frozen_content": content,
@@ -2565,10 +2625,13 @@ class LocalFeishuBridge:
         )
 
     def _send_card(self, receive_type: str, receive_id: str, card: Dict[str, Any], *,
-                   delivery_uuid: str = "", frozen_content: Optional[str] = None) -> str:
-        response = self._request(
+                   delivery_uuid: str = "", frozen_content: Optional[str] = None,
+                   audience: Optional[Dict[str, Any]] = None) -> str:
+        audience = audience if audience is not None else _audience_snapshot(self.account_username, receive_type, receive_id)
+        response = self._card_request(
             "POST",
             "/im/v1/messages",
+            audience=audience,
             query={"receive_id_type": receive_type},
             payload={
                 "receive_id": receive_id,
@@ -2578,6 +2641,27 @@ class LocalFeishuBridge:
             },
         )
         return str((response.get("data") or {}).get("message_id") or "")
+
+    def _card_request(self, method: str, path: str, *, audience: Mapping[str, Any], **kwargs):
+        with _audience_lock(self.account_username):
+            _check_audience(self.account_username, audience)
+            return self._request(method, path, **kwargs)
+
+    def _message_audience(self, store, task: Mapping[str, Any], message_id: str) -> Dict[str, Any]:
+        # Prefer the original durable POST, including its revocation generation.
+        deliveries = store.execute(
+            "SELECT receive_type,receive_id,payload_json FROM feishu_outbox WHERE account_username=? "
+            "AND operation='send_card' AND message_id=? ORDER BY id LIMIT 1",
+            (self.account_username, message_id), fetch=True) or []
+        if deliveries:
+            delivery = deliveries[0]
+            data = _loads(delivery.get("payload_json"), {})
+            return data.get("audience") or {"receive_type": delivery.get("receive_type"), "receive_id": delivery.get("receive_id")}
+        for message in _loads(task.get("card_messages_json"), []):
+            if isinstance(message, dict) and message.get("message_id") == message_id:
+                # Legacy receipts are generation zero, never upgraded on rebind.
+                return message.get("audience") or message
+        return {}
 
     def _queue_outbox(
         self,
@@ -2654,16 +2738,30 @@ class LocalFeishuBridge:
             if not row:
                 # Never resurrect a deleted/unowned task using an old frozen card.
                 return False
+            audience = self._message_audience(store, row, message_id)
+            try:
+                _check_audience(self.account_username, audience)
+            except AudienceRevokedError:
+                store.execute("UPDATE feishu_outbox SET status='superseded',last_error='收件授权已撤销',"
+                              "lease_owner=NULL,lease_expires_at=NULL WHERE account_username=? "
+                              "AND operation='update_card' AND message_id=? AND status<>'sent'",
+                              (self.account_username, message_id))
+                return False
             content = json.dumps(
                 build_local_task_card(_task_payload(row), expanded=expanded),
                 ensure_ascii=False,
             )
             version = _card_result_version(row)
             receipt = {"task_uid": task_uid, "expanded": expanded, "business_version": version,
+                       "audience": audience,
                        "content_sha256": hashlib.sha256(content.encode("utf-8")).hexdigest()}
             receipt_uid = hashlib.sha256((self.account_username + "|patch|" + message_id + "|" +
                                          version + "|" + receipt["content_sha256"]).encode()).hexdigest()
             prior_receipt = store.select_one("feishu_outbox", where={"outbox_uid": receipt_uid}) or {}
+            current_message = next((m for m in _loads(row.get("card_messages_json"), [])
+                                    if isinstance(m, dict) and m.get("message_id") == message_id), {})
+            if current_message.get("last_content_sha256") == receipt["content_sha256"]:
+                return True
             attempt_count = max(int((queued_row or {}).get("attempt_count") or 0),
                                 int(prior_receipt.get("attempt_count") or 0))
             store.insert_or_update("feishu_outbox", {
@@ -2674,10 +2772,15 @@ class LocalFeishuBridge:
                 "lease_owner": _OUTBOX_LEASE_OWNER, "lease_expires_at": _dt(_now() + timedelta(seconds=60)),
             }, unique_fields=["outbox_uid"])
             try:
-                self._request(
+                self._card_request(
                     "PATCH", "/im/v1/messages/" + quote(message_id, safe=""),
+                    audience=audience,
                     payload={"content": content},
                 )
+            except AudienceRevokedError:
+                store.execute("UPDATE feishu_outbox SET status='superseded',last_error='收件授权已撤销',"
+                              "lease_owner=NULL,lease_expires_at=NULL WHERE outbox_uid=?", (receipt_uid,))
+                return False
             except Exception:
                 store.execute("UPDATE feishu_outbox SET status=?,lease_owner=NULL,lease_expires_at=NULL,"
                               "next_attempt_at=?,last_error='卡片PATCH失败',updated_at=? WHERE outbox_uid=?",
@@ -2695,6 +2798,15 @@ class LocalFeishuBridge:
             store.execute("UPDATE feishu_outbox SET status='sent',sent_at=?,updated_at=?,last_error='',"
                           "lease_owner=NULL,lease_expires_at=NULL WHERE outbox_uid=?",
                           (_dt(_now()), _dt(_now()), receipt_uid))
+            with store.transaction() as connection:
+                latest = connection.execute("SELECT card_messages_json FROM local_retarget_task "
+                                            "WHERE task_uid=? AND account_username=?", (task_uid, self.account_username)).fetchone()
+                messages = _loads(latest[0], []) if latest else []
+                for message in messages:
+                    if isinstance(message, dict) and message.get("message_id") == message_id:
+                        message["last_content_sha256"] = receipt["content_sha256"]
+                connection.execute("UPDATE local_retarget_task SET card_messages_json=? WHERE task_uid=? AND account_username=?",
+                                   (_json(messages), task_uid, self.account_username))
             try:
                 from services.operation_diagnostics import record
                 record("feishu_delivery", stage="card_update_sent", reason_code="receipt_confirmed",
@@ -2751,6 +2863,15 @@ class LocalFeishuBridge:
             row = dict(rows[0])
             payload = _loads(row.get("payload_json"), {})
             operation = str(row.get("operation") or "")
+            if operation == "send_card":
+                try:
+                    _check_audience(self.account_username, payload.get("audience") or {
+                        "receive_type": row.get("receive_type"), "receive_id": row.get("receive_id")})
+                except AudienceRevokedError:
+                    store.execute("UPDATE feishu_outbox SET status='superseded',last_error='收件授权已撤销',updated_at=? "
+                                  "WHERE outbox_uid=?", (now_text, row["outbox_uid"]), connection=connection)
+                    _record_initial_delivery_state(connection, self.account_username, str(payload.get("task_uid") or ""))
+                    return True
             if operation == "send_card" and not _frozen_delivery_retryable(row, payload, now):
                 store.execute(
                     "UPDATE feishu_outbox SET status='unknown',last_error=?,updated_at=? WHERE outbox_uid=?",
@@ -2800,6 +2921,7 @@ class LocalFeishuBridge:
                     task_uid=task_uid, delivery_stage=str(payload.get("delivery_stage") or ""),
                     delivery_uuid=str(payload["delivery_uuid"]),
                     frozen_content=str(payload["frozen_content"]),
+                    audience=payload.get("audience") or {"receive_type": row.get("receive_type"), "receive_id": row.get("receive_id")},
                 )
                 if message_id is None:
                     store.execute(
@@ -2824,7 +2946,8 @@ class LocalFeishuBridge:
                         raise FeishuApiError("投递回执的领取版本已变化，未覆盖其他投递轮次")
                     _merge_task_message(connection, self.account_username, task_uid,
                                         receive_type=str(row.get("receive_type") or ""),
-                                        receive_id=str(row.get("receive_id") or ""), message_id=message_id)
+                                        receive_id=str(row.get("receive_id") or ""), message_id=message_id,
+                                        audience=payload.get("audience"))
                 if task:
                     try:
                         self._patch_latest_task_card(task_uid, message_id)
@@ -2837,6 +2960,11 @@ class LocalFeishuBridge:
                     raise FeishuApiError("卡片任务或更新领取资格已变化，未确认送达")
             else:
                 raise FeishuApiError("未知飞书发件箱操作")
+            _refresh_reconciliation_card_update_state(store, self.account_username, task_uid)
+        except AudienceRevokedError:
+            store.execute("UPDATE feishu_outbox SET status='superseded',last_error='收件授权已撤销',"
+                          "lease_owner=NULL,lease_expires_at=NULL WHERE outbox_uid=? AND fencing_token=?",
+                          (row["outbox_uid"], token))
             _refresh_reconciliation_card_update_state(store, self.account_username, task_uid)
         except Exception as exc:
             attempts = int(row["attempt_count"])
@@ -2860,8 +2988,11 @@ class LocalFeishuBridge:
 
         def _loop() -> None:
             while not self._outbox_stop.is_set():
-                if self._deliver_outbox_once():
-                    continue
+                try:
+                    if self._deliver_outbox_once():
+                        continue
+                except Exception:
+                    logger.exception("[飞书长连接] 发件箱暂时不可用，稍后继续")
                 self._outbox_wake.wait(2)
                 self._outbox_wake.clear()
 
@@ -2888,6 +3019,7 @@ class LocalFeishuBridge:
         self, receive_type: str, receive_id: str, card: Dict[str, Any], *,
         task_uid: str = "", delivery_stage: str = "",
         delivery_uuid: str = "", frozen_content: Optional[str] = None,
+        audience: Optional[Dict[str, Any]] = None,
     ) -> Optional[str]:
         lane = int(hashlib.sha256(
             f"{self.account_username}|{task_uid}|{receive_type}|{receive_id}".encode("utf-8")
@@ -2903,8 +3035,8 @@ class LocalFeishuBridge:
                     return None
             if delivery_uuid:
                 return self._send_card(receive_type, receive_id, card,
-                                       delivery_uuid=delivery_uuid, frozen_content=frozen_content)
-            return self._send_card(receive_type, receive_id, card)
+                                       delivery_uuid=delivery_uuid, frozen_content=frozen_content, audience=audience)
+            return self._send_card(receive_type, receive_id, card, audience=audience)
 
     def send_bound_card(
         self, card: Dict[str, Any], *, targets: Optional[List[Tuple[str, str]]] = None,
@@ -2925,6 +3057,7 @@ class LocalFeishuBridge:
                 logical = f"{self.account_username}|{task_uid}|{delivery_stage or 'notice'}|{kind}|{recipient}"
                 uid = hashlib.sha256(logical.encode()).hexdigest() if task_uid else uuid.uuid4().hex
                 data = {"delivery_protocol": _INITIAL_DELIVERY_PROTOCOL, "task_uid": task_uid,
+                        "audience": _audience_snapshot(self.account_username, kind, recipient),
                         "delivery_stage": delivery_stage, "delivery_uuid": uuid.uuid4().hex,
                         "frozen_content": content, "content_sha256": content_hash,
                         "business_version": business_version,
@@ -2987,10 +3120,12 @@ class LocalFeishuBridge:
             if not open_id:
                 return {"success": False, "message": "请先完成个人绑定"}
             nonce = secrets.token_hex(24)
+            audience = _audience_snapshot(self.account_username, "open_id", open_id)
             with self._lock:
                 self._connection_test = {
                     "nonce": nonce,
                     "expires_at": time.time() + 600,
+                    "audience": audience,
                 }
             card = {
                 "config": {"wide_screen_mode": True, "enable_forward": False},
@@ -3020,7 +3155,7 @@ class LocalFeishuBridge:
                     },
                 ],
             }
-            message_id = self._send_card("open_id", open_id, card)
+            message_id = self._send_card("open_id", open_id, card, audience=audience)
             return {
                 "success": bool(message_id),
                 "message": (
@@ -3048,9 +3183,9 @@ class LocalFeishuBridge:
                 return {"success": False, "message": "测试按钮已失效，请重新发送测试卡片"}
             self._connection_test.clear()
             self._last_card_action_at = _dt(_now())
-        return {"success": True}
+        return {"success": True, "audience": item.get("audience") or {"receive_type": "open_id", "receive_id": open_id}}
 
-    def _finish_connection_test_card(self, message_id: str) -> None:
+    def _finish_connection_test_card(self, message_id: str, audience: Optional[Dict[str, Any]] = None) -> None:
         if not message_id:
             return
         card = {
@@ -3070,9 +3205,10 @@ class LocalFeishuBridge:
             ],
         }
         try:
-            self._request(
+            self._card_request(
                 "PATCH",
                 "/im/v1/messages/" + quote(message_id, safe=""),
+                audience=audience or {},
                 payload={"content": json.dumps(card, ensure_ascii=False)},
             )
         except Exception as exc:
@@ -3247,6 +3383,7 @@ class LocalFeishuBridge:
                 _EVENT_EXECUTOR.submit(
                     self._finish_connection_test_card,
                     str(getattr(event, "message_id", "") or ""),
+                    test_result.get("audience"),
                 )
             elif open_id:
                 try:
@@ -3271,6 +3408,7 @@ class LocalFeishuBridge:
                 material_id=str(value.get("material_id") or ""),
                 group_uid=str(value.get("group_uid") or ""),
                 instance_uid=event_instance_uid,
+                inbox_claim=inbox_id,
             )
         except Exception as exc:
             _inbox_finish(self.account_username, inbox_id, error=str(exc))
@@ -3647,13 +3785,11 @@ def remove_local_feishu_group(chat_id: str) -> Dict[str, Any]:
     account = _MANAGER.account
     if not account:
         return {"success": False, "message": "请先登录工具账号"}
-    profile = _profile_for(account)
-    groups = [
-        group
-        for group in profile.get("groups") or []
-        if isinstance(group, dict) and str(group.get("chat_id") or "") != str(chat_id or "")
-    ]
-    _update_profile(account, {"groups": groups})
+    # Serialize the read/modify/write with concurrent binding operations.
+    with _audience_lock(account):
+        profile = _profile_for(account)
+        groups = [g for g in profile.get("groups") or [] if isinstance(g, dict) and str(g.get("chat_id") or "") != str(chat_id or "")]
+        _update_profile(account, {"groups": groups})
     return {"success": True}
 
 
@@ -3668,6 +3804,7 @@ def clear_local_feishu_binding() -> Dict[str, Any]:
             "personal_chat_id": "",
             "groups": [],
         },
+        revoke_all=True,
     )
     _clear_persisted_binding_codes(account)
     return {"success": True}
@@ -4243,7 +4380,7 @@ def create_local_stop_task(payload: Dict[str, Any]) -> Dict[str, Any]:
     )
     try:
         routed = resolve_account_feishu_targets(required["aavid"], owner_username=account, db=store)
-        targets = _delivery_targets(routed or bridge.bound_targets())
+        targets = _delivery_targets(routed if routed is not None else bridge.bound_targets())
     except Exception as exc:
         return {"success": False, "message": str(exc)}
     snapshot["delivery_protocol"] = _INITIAL_DELIVERY_PROTOCOL
@@ -4489,7 +4626,7 @@ def _handle_local_stop_card_action(
         conn.commit()
         try:
             from services.retarget_diagnostics import card_action
-            card_action(task_uid, action + "_committed", payload if action == "approve" else _loads(row.get("payload_json"), {}),
+            card_action(task_uid, action + "_committed", _loads(row.get("payload_json"), {}),
                         committed=True)
         except Exception:
             pass
@@ -4508,6 +4645,7 @@ def handle_local_card_action(
     material_id: str = "",
     group_uid: str = "",
     instance_uid: str = "",
+    inbox_claim: str = "",
 ) -> Dict[str, Any]:
     account = _account_key(account_username)
     if instance_uid and not secrets.compare_digest(
@@ -4593,6 +4731,12 @@ def handle_local_card_action(
         conn = _db()
         try:
             conn.execute("BEGIN IMMEDIATE")
+            if inbox_claim and not str(inbox_claim).startswith("volatile:"):
+                event = conn.execute("SELECT status,attempt_count FROM feishu_inbox WHERE account_username=? AND event_id=?",
+                                     (account, str(inbox_claim))).fetchone()
+                if not event or event["status"] != "processing" or event["attempt_count"] != getattr(inbox_claim, "attempt", None):
+                    conn.rollback()
+                    return {"success": True, "silent": True, "message": ""}
             current = conn.execute(
                 "SELECT status,payload_json FROM local_retarget_task "
                 "WHERE task_uid=? AND account_username=?",
@@ -4744,6 +4888,9 @@ def handle_local_card_action(
                 "WHERE task_uid=? AND account_username=? AND status='pending'",
                 (_json(payload), now_text, task_uid, account),
             )
+            # Commit the non-idempotent edit and its event receipt together.
+            # A crash after this commit must not toggle the same material twice.
+            _inbox_finish(account, inbox_claim, connection=conn)
             conn.commit()
             return {"success": True, "message": message, "update": True}
         finally:

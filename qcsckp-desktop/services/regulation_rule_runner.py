@@ -1035,7 +1035,7 @@ def _send_auto_stop_result_notification(
     # REST 临时失败时 LocalFeishuBridge 会把消息写入持久化 outbox 重试。
     return send_local_feishu_bound_card(
         card,
-        targets=targets or None,
+        targets=targets,
         require_connected=False,
         task_uid=delivery_task_uid,
         delivery_stage="terminal",
@@ -1103,7 +1103,7 @@ def _send_auto_stop_submitted_notification(
     )
     send_local_feishu_bound_card(
         card,
-        targets=targets or None,
+        targets=targets,
         require_connected=False,
         task_uid=delivery_task_uid,
         delivery_stage="submitted",
@@ -1686,6 +1686,7 @@ async def run_one_cycle(db: SQLiteStore, *, target_uids=None) -> None:
                                     "已去重" if card_result.get("duplicate") else "已入队",
                                     target_uid,
                                     assist_task_id,
+                                    (card_result.get("data") or {}).get("delivery_state", "unrecorded"),
                                 )
                             else:
                                 logger.warning(
@@ -1739,7 +1740,6 @@ async def run_one_cycle(db: SQLiteStore, *, target_uids=None) -> None:
                                     db,
                                     target_uid,
                                     assist_task_id,
-                                    (card_result.get("data") or {}).get("delivery_state", "unrecorded"),
                                     assist_row=latest_row,
                                 )
                                 if latest_cycle_state.get("blocked"):

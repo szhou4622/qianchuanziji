@@ -1000,6 +1000,8 @@ def _verify_one(store: SQLiteStore, row: Mapping[str, Any]) -> None:
 
             service = get_official_api_service()
             task_id = str(row.get("control_task_id") or "").strip()
+            if action_type == "budget" and not task_id:
+                raise RuntimeError("预算调整缺少原调控任务 ID，不能按创建任务方式匹配")
             if not task_id:
                 # A transient POST response can omit the created task ID even
                 # though the downstream service completed the write.  Search
@@ -1043,7 +1045,11 @@ def _verify_one(store: SQLiteStore, row: Mapping[str, Any]) -> None:
                 ad_id=row.get("ad_id"),
                 promotion_scene=data.get("promotion_scene"),
                 task_id=task_id,
-                material_ids=data.get("material_ids") or [],
+                # Historical budget intents did not freeze a material list.
+                # They still verify the exact task, plan, budget and duration.
+                # Creation intents must always enforce the frozen set.
+                material_ids=(data.get("material_ids") if action_type == "budget"
+                              else data.get("material_ids") or []),
                 budget=data.get("budget"),
                 duration=verification_duration(store, row, data),
             )
