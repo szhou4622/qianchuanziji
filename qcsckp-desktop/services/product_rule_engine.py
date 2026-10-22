@@ -30,10 +30,18 @@ def _number(value: Any) -> float:
 
 
 def _safe_ratio(numerator: Any, denominator: Any) -> Optional[float]:
-    den = _number(denominator)
-    if den <= 0:
+    num, den = _optional_number(numerator), _optional_number(denominator)
+    if num is None or den is None or den <= 0:
         return None
-    return _number(numerator) / den
+    return num / den
+
+
+def _optional_number(value: Any) -> Optional[float]:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
 
 
 def normalize_product_ids(value: Any) -> List[str]:
@@ -110,11 +118,15 @@ def aggregate_product_rows(
             group["materialIds"].append(material_id)
             group["materials"].append(row)
             for metric in ADDITIVE_METRICS:
-                group[metric] += _number(row.get(metric))
+                value = _optional_number(row.get(metric))
+                # A partial aggregate is not evidence of a zero (or a low ROI).
+                group[metric] = None if value is None or group[metric] is None else group[metric] + value
 
     result: List[Dict[str, Any]] = []
     for group in groups.values():
-        cost = group["costDiff"]
+        # Amounts/counts are cumulative for the report day. Only costDiff is
+        # an interval delta; dividing cumulative revenue by it inflates ROI.
+        cost = group["currentCost"]
         overall_amount = group["overallAmount"]
         net_amount = group["netAmount"]
         shows = group["overallShowCount"]
@@ -125,7 +137,7 @@ def aggregate_product_rows(
         settle_rate = _safe_ratio(net_amount, overall_amount)
         ctr = _safe_ratio(clicks, shows)
         conversion = _safe_ratio(orders, clicks)
-        estimated_ecpm = _safe_ratio(cost * 1000.0, shows)
+        estimated_ecpm = _safe_ratio(None if cost is None else cost * 1000.0, shows)
         refund_rate = None if settle_rate is None else max(0.0, min(1.0, 1.0 - settle_rate))
         group.update(
             {

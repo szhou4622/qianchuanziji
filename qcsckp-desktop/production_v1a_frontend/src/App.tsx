@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { csvCell } from "./csv";
 import {
   Button,
   Checkbox,
@@ -2121,14 +2122,12 @@ function OperationsPage({
       ["control_task_id", "调控任务ID"],
       ["error_message", "失败原因"],
     ];
-    const escape = (value: unknown) =>
-      `"${String(value ?? "").replaceAll('"', '""')}"`;
     const text =
       "\ufeff" +
       [
         columns.map(([, label]) => label).join(","),
         ...normalizedRows.map((row) => {
-          return columns.map(([column]) => escape(row[column])).join(",");
+          return columns.map(([column]) => csvCell(row[column])).join(",");
         }),
       ].join("\r\n");
     const link = document.createElement("a");

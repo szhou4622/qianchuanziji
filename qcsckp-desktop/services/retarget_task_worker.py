@@ -1100,6 +1100,7 @@ async def _execute_budget_increase_task(
                 verify_payload={
                     "aavid": aavid, "ad_id": ad_id, "promotion_scene": scene,
                     "task_id": assist_task_id, "execution_uid": execution_uid,
+                    "material_ids": exact.get("material_ids"),
                     "budget": calculation["new_budget_yuan"], "duration": new_duration,
                     "required_steps": required_steps, "attempted_steps": ["budget"],
                     "completed_steps": [],

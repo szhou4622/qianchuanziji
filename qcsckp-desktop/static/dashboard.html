@@ -3001,7 +3001,7 @@
                     trigger: 'item',
                     formatter: function(params) {
                         const showName = params.data && params.data.fullName != null ? params.data.fullName : params.name;
-                        return `<div class="text-sm">${showName}</div>
+                        return `<div class="text-sm">${escapeHtml(showName)}</div>
                                 <div class="font-bold text-white mt-1">
                                   消耗: ¥${params.value.toLocaleString()} (${params.percent}%)
                                 </div>`;

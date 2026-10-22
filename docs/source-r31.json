@@ -1989,6 +1989,27 @@
   "documented_changes": {
     ".gitignore": "保留原规则并补充本仓库 CI 报告和凭据排除规则",
     "qcsckp-desktop/tests/test_sparse_report_completeness.py": "CI 移植测试夹具：通过 PATH 查找 Node，缺失时明确失败，去除开发者私有绝对路径；断言不变",
-    "qcsckp-desktop/tests/test_r20_startup_lifecycle.py": "CI 移植测试夹具：临时目录先 resolve，保证 Windows 短路径和解析后路径使用同一标识；断言不变"
+    "qcsckp-desktop/tests/test_r20_startup_lifecycle.py": "CI 移植测试夹具：临时目录先 resolve，保证 Windows 短路径和解析后路径使用同一标识；断言不变",
+    "qcsckp-desktop/api/operation_events.py": "CSV 导出对文本公式前缀做安全转义，保留存储原文与原有列序",
+    "qcsckp-desktop/production_v1a/reports.py": "复用 CSV 文本安全边界，覆盖同源可选导出入口",
+    "qcsckp-desktop/production_v1a_frontend/src/App.tsx": "操作流水导出使用统一 CSV 单元格编码，保持界面不变",
+    "qcsckp-desktop/production_v1a_frontend/package-lock.json": "仅更新 vite/nanoid/source-map-js 三个已有范围内安全补丁；npm audit 清零",
+    "qcsckp-desktop/production_v1a_frontend/dist/assets/index-BnjA7w5f.js": "重建 CSV 修复对应的前端资源，新摘要文件替换旧构建",
+    "qcsckp-desktop/production_v1a_frontend/dist/index.html": "引用修复后构建的 JS 资源，保持 UI 不变",
+    "qcsckp-desktop/services/local_feishu_bridge.py": "绑定撤销代际及 POST/PATCH 发送前检查；事件原子去重与编辑回执同事务；相同卡片内容去重和队列故障恢复",
+    "qcsckp-desktop/services/official_api_reconciliation.py": "预算对账兼容历史未记录素材集合，创建任务仍严格比对冻结素材",
+    "qcsckp-desktop/services/operation_daily_report.py": "定时日报向发件箱传稳定日键，重试复用 UUID；保留手动重发",
+    "qcsckp-desktop/services/product_rule_engine.py": "商品累计 ROI 使用累计消耗，缺失/无效聚合指标保留未知",
+    "qcsckp-desktop/services/qianchuan_open_api/client.py": "POST 坏响应/缺业务状态码进入结果未知只读对账，不重复提交",
+    "qcsckp-desktop/services/regulation_rule_runner.py": "修复自动停投多余参数和卡片日志参数错位；空账号路由不回退默认收件人",
+    "qcsckp-desktop/services/retarget_task_worker.py": "预算调整意图冻结已查询的原任务素材集合",
+    "qcsckp-desktop/static/dashboard.html": "Top20 tooltip 复用 escapeHtml 防止素材名 HTML 注入",
+    "qcsckp-desktop/tests/test_execution_recovery.py": "新增隔离回归或补齐真实收件身份/累计指标夹具；保留原测试业务意图",
+    "qcsckp-desktop/tests/test_local_feishu_bridge.py": "新增隔离回归或补齐真实收件身份/累计指标夹具；保留原测试业务意图",
+    "qcsckp-desktop/tests/test_operation_daily_report.py": "新增隔离回归或补齐真实收件身份/累计指标夹具；保留原测试业务意图",
+    "qcsckp-desktop/tests/test_product_promotion.py": "新增隔离回归或补齐真实收件身份/累计指标夹具；保留原测试业务意图",
+    "qcsckp-desktop/tests/test_r19_feishu_delivery.py": "新增隔离回归或补齐真实收件身份/累计指标夹具；保留原测试业务意图",
+    "qcsckp-desktop/tests/test_r19_submission_safety.py": "新增隔离回归或补齐真实收件身份/累计指标夹具；保留原测试业务意图",
+    "qcsckp-desktop/tests/test_r30_recovery.py": "新增隔离回归或补齐真实收件身份/累计指标夹具；保留原测试业务意图"
   }
 }

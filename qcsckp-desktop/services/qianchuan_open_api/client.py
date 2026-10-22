@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import inspect
 import random
+import re
 import socket
 import threading
 import time
@@ -197,6 +198,19 @@ class QianchuanOpenApiClient:
             raise ApiRequestError("千川官方 API 返回了无法解析的响应") from exc
         if not isinstance(value, Mapping):
             raise ApiRequestError("千川官方 API 响应不是对象")
+        return value
+
+    def _decode_write_response(self, raw: bytes, headers: Any = None) -> Mapping[str, Any]:
+        """Only an explicit business envelope can establish a POST outcome."""
+        try:
+            value = self._decode(raw)
+        except ApiRequestError as exc:
+            raise ApiRequestError(str(exc), code="invalid_write_response",
+                                  request_id=self._request_id({}, headers)) from exc
+        code = value.get("code")
+        if not (type(code) is int or (isinstance(code, str) and re.fullmatch(r"(?:0|-?[1-9][0-9]*)", code))):
+            raise ApiRequestError("千川官方 API 写响应缺少有效业务状态码", code="invalid_write_response",
+                                  request_id=self._request_id(value, headers))
         return value
 
     @staticmethod
@@ -527,7 +541,8 @@ class QianchuanOpenApiClient:
                     before_send()
                 write_started = verb == "POST"
                 with urlopen(request, timeout=self.timeout) as response:
-                    decoded = self._decode(response.read())
+                    decoded = (self._decode_write_response(response.read(), response.headers)
+                               if verb == "POST" else self._decode(response.read()))
                     status = int(getattr(response, "status", 200) or 200)
                     code = str(decoded.get("code") or "0")
                     if status < 200 or status >= 300 or code not in {"", "0"}:
@@ -578,13 +593,16 @@ class QianchuanOpenApiClient:
                     )
                     return result
             except HTTPError as exc:
+                invalid_response = False
                 try:
-                    decoded = self._decode(exc.read())
+                    decoded = (self._decode_write_response(exc.read(), exc.headers)
+                               if verb == "POST" else self._decode(exc.read()))
                 except ApiRequestError:
+                    invalid_response = True
                     decoded = {"message": f"HTTP {exc.code}"}
                 request_id = self._request_id(decoded, exc.headers)
                 error_code = str(decoded.get("code") or decoded.get("err_no") or exc.code)
-                if verb == "POST" and int(exc.code) >= 500:
+                if verb == "POST" and write_started and (int(exc.code) >= 500 or invalid_response):
                     error = ApiWriteOutcomeUnknown(
                         "千川官方 API 写请求结果未知，禁止直接重试，正在等待对账",
                         request_id=request_id,
@@ -655,8 +673,8 @@ class QianchuanOpenApiClient:
                 raise
             except ApiRequestError as exc:
                 last_error = exc
-                if verb == "POST" and self._is_transient_service_error(
-                    exc.code, str(exc)
+                if verb == "POST" and write_started and (
+                    exc.code == "invalid_write_response" or self._is_transient_service_error(exc.code, str(exc))
                 ):
                     # The platform accepted the HTTP request but its downstream
                     # service timed out.  The write may already exist, so never
@@ -679,7 +697,7 @@ class QianchuanOpenApiClient:
                         }
                     )
                     raise ApiWriteOutcomeUnknown(
-                        "千川官方 API 内部处理超时，禁止重复提交，正在查询是否已创建",
+                        "千川官方 API 写请求结果未知，禁止重复提交，正在查询平台结果",
                         code=exc.code,
                         request_id=exc.request_id,
                         endpoint=endpoint,

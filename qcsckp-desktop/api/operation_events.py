@@ -9,6 +9,7 @@ import json
 import re
 import time
 import uuid
+from utils.csv_safety import spreadsheet_cell
 from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -743,7 +744,7 @@ def export_operation_events_csv(**filters: Any) -> str:
     )
     for row in rows:
         writer.writerow(
-            [
+            [spreadsheet_cell(value) for value in [
                 row.get("aavid", ""),
                 row.get("target_uid", ""),
                 "推商品" if row.get("promotion_scene") == "product" else ("推直播" if row.get("promotion_scene") == "live" else row.get("promotion_scene", "")),
@@ -766,7 +767,7 @@ def export_operation_events_csv(**filters: Any) -> str:
                 row.get("status", ""),
                 row.get("summary", ""),
                 row.get("cloud_task_id", ""),
-            ]
+            ]]
         )
     return "\ufeff" + output.getvalue()
 

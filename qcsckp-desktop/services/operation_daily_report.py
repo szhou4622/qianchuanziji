@@ -843,6 +843,7 @@ def send_operation_daily_report(
                 sent = send_local_feishu_bound_card(
                     card,
                     targets=[(receive_type, receive_id)],
+                    **({"task_uid": "daily:" + key, "delivery_stage": "daily_report"} if key else {}),
                 )
                 message_id = str(sent[0].get("message_id") or "") if sent else ""
                 _record_delivery(
@@ -907,6 +908,7 @@ def send_operation_daily_report(
             sent = send_local_feishu_bound_card(
                 summary_card,
                 targets=[(receive_type, receive_id)],
+                **({"task_uid": "daily:" + key, "delivery_stage": "daily_report"} if key else {}),
             )
             message_id = str(sent[0].get("message_id") or "") if sent else ""
             _record_delivery(

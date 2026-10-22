@@ -99,7 +99,6 @@ class FrozenDeliveryTests(unittest.TestCase):
             saved_clock = json.loads(self.outbox(uid)["payload_json"])["first_attempt_at"]
             self.assertTrue(saved_clock)
             self.assertEqual("pending", bridge._task_row(uid)["status"])
-            bridge._update_profile(self.owner, {"authorized_open_id": "different-person"})
             self.due(uid)
             self.actual._deliver_outbox_once()
         self.assertEqual(posts[0], posts[1])
@@ -121,6 +120,159 @@ class FrozenDeliveryTests(unittest.TestCase):
         self.assertEqual("unknown", self.outbox(uid)["status"])
         self.assertEqual("pending", bridge._task_row(uid)["status"])
         self.assertIsNotNone(bridge._task_row(uid)["active_dedupe_key"])
+
+    def test_timeout_then_personal_rebinding_cancels_frozen_delivery(self):
+        uid = self.create()
+        with patch.object(self.actual, "_request", side_effect=TimeoutError("response lost")) as request:
+            self.actual._deliver_outbox_once()
+            bridge._update_profile(self.owner, {"authorized_open_id": "new-person"})
+            self.due(uid)
+            self.actual._deliver_outbox_once()
+        self.assertEqual(1, request.call_count)
+        self.assertEqual("superseded", self.outbox(uid)["status"])
+
+    def test_group_removal_and_rebinding_never_revives_old_send_or_patch(self):
+        bridge._update_profile(self.owner, {"send_personal": False, "groups": [{"chat_id": "group"}]})
+        uid = self.create()
+        frozen = self.outbox(uid)
+        bridge.remove_local_feishu_group("group")
+        bridge._update_profile(self.owner, {"groups": [{"chat_id": "group"}]})
+        with patch.object(self.actual, "_request") as request:
+            self.actual._deliver_outbox_once()
+            # Old-version message receipts have no audience-generation fields.
+            self.store.execute("UPDATE local_retarget_task SET card_messages_json=? WHERE task_uid=?",
+                               (json.dumps([{"receive_type": "chat_id", "receive_id": "group", "message_id": "old"}]), uid))
+            self.actual.update_task_cards(uid)
+            request.assert_not_called()
+        self.assertEqual("superseded", self.outbox(uid)["status"])
+        self.assertEqual(json.loads(frozen['payload_json'])['delivery_uuid'], json.loads(self.outbox(uid)['payload_json'])['delivery_uuid'])
+        with patch.object(self.actual, "_request", return_value={"data": {"message_id": "fresh"}}):
+            self.assertEqual('fresh', self.actual.send_bound_card({'fresh': True}, task_uid='fresh-notice')[0]['message_id'])
+
+    def test_clear_binding_blocks_sent_card_updates_after_same_person_rebinds(self):
+        uid = self.create()
+        with patch.object(self.actual, "_request", return_value={"data": {"message_id": "message"}}):
+            self.actual._deliver_outbox_once()
+        bridge.clear_local_feishu_binding()
+        bridge._update_profile(self.owner, {"authorized_open_id": "personal"})
+        with patch.object(self.actual, "_request") as request:
+            self.actual.update_task_cards(uid, expanded=True)
+            request.assert_not_called()
+
+    def test_custom_and_explicit_targets_keep_their_existing_contract(self):
+        bridge._update_profile(self.owner, {"send_personal": False, "send_groups": False, "groups": [{"chat_id": "group"}]})
+        for kind, recipient in [('open_id', 'personal'), ('chat_id', 'group'), ('email', 'fixture@example.invalid')]:
+            with patch.object(self.actual, "_request", return_value={"data": {"message_id": recipient}}) as request:
+                self.actual.send_bound_card({'ok': True}, targets=[(kind, recipient)])
+                self.assertEqual(recipient, request.call_args.kwargs['payload']['receive_id'])
+
+    def test_identical_card_patch_is_skipped_but_business_change_updates(self):
+        uid = self.create()
+        with patch.object(self.actual, "_request", return_value={"data": {"message_id": "message"}}) as request:
+            self.actual._deliver_outbox_once()
+            initial_count = request.call_count
+            self.actual.update_task_cards(uid)
+            self.assertEqual(initial_count, request.call_count)
+            self.store.execute("UPDATE local_retarget_task SET status='rejected',result_message='not now' WHERE task_uid=?", (uid,))
+            self.actual.update_task_cards(uid)
+            self.assertEqual(initial_count + 1, request.call_count)
+
+    def test_inbox_claim_is_atomic_and_stale_completion_cannot_overwrite_retry(self):
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            claims = list(pool.map(lambda _: bridge._inbox_begin(self.owner, 'same-event', 'card', {}), range(2)))
+        self.assertEqual(1, sum(claim is not None for claim in claims))
+        old = next(claim for claim in claims if claim is not None)
+        self.store.execute("UPDATE feishu_inbox SET updated_at='2000-01-01 00:00:00'")
+        new = bridge._inbox_begin(self.owner, 'same-event', 'card', {})
+        bridge._inbox_finish(self.owner, old)
+        self.assertEqual('processing', self.store.select_one('feishu_inbox')['status'])
+        bridge._inbox_finish(self.owner, new)
+        self.assertIsNone(bridge._inbox_begin(self.owner, 'same-event', 'card', {}))
+
+    def test_redundant_patch_retry_settles_its_lease_without_network(self):
+        uid = self.create()
+        with patch.object(self.actual, '_request', return_value={'data': {'message_id': 'message'}}):
+            self.actual._deliver_outbox_once()
+        self.actual._queue_outbox(operation='update_card', message_id='message', payload={'task_uid': uid, 'content': 'old'})
+        with patch.object(self.actual, '_request') as request:
+            self.assertTrue(self.actual._deliver_outbox_once())
+            self.assertFalse(self.actual._deliver_outbox_once())
+            request.assert_not_called()
+        self.assertEqual([], self.store.execute("SELECT id FROM feishu_outbox WHERE status IN ('queued','sending')", fetch=True))
+
+    def test_binding_and_removal_serialize_the_entire_group_update(self):
+        bridge._update_profile(self.owner, {'groups': [{'chat_id': 'old-group'}]})
+        entered, release, removed = threading.Event(), threading.Event(), threading.Event()
+        def consume(*args):
+            entered.set()
+            self.assertTrue(release.wait(5))
+            return True
+        def remove():
+            bridge.remove_local_feishu_group('old-group')
+            removed.set()
+        message = SimpleNamespace(message_id='bind-message', content_text='绑定群 123456',
+                                  sender=SimpleNamespace(open_id='personal'), chat_id='new-group', chat_type='group')
+        with patch.object(self.actual, '_consume_binding_code', side_effect=consume), patch.object(self.actual, '_request', return_value={}):
+            binder = threading.Thread(target=self.actual._on_message, args=(message,))
+            binder.start()
+            self.assertTrue(entered.wait(5))
+            remover = threading.Thread(target=remove)
+            remover.start()
+            self.assertFalse(removed.wait(.05))
+            release.set()
+            binder.join(5)
+            remover.join(5)
+        self.assertFalse(binder.is_alive() or remover.is_alive())
+        self.assertEqual(['new-group'], [g['chat_id'] for g in self.actual.profile()['groups']])
+
+    def test_toggle_commits_event_receipt_with_selection(self):
+        from services.qianchuan_accounts import ensure_qianchuan_account
+        ensure_qianchuan_account('10001', owner_username=self.owner, enabled=True, seen=True, db=self.store)
+        result = bridge.create_local_retarget_task(fixtures.task_payload())
+        self.assertTrue(result['success'], result)
+        uid = result['data']['task_uid']
+        task = bridge._task_row(uid)
+        data = json.loads(task['payload_json'])
+        material = data['selected_material_ids'][0]
+        claim = bridge._inbox_begin(self.owner, 'toggle-event', 'card', {})
+        kwargs = dict(task_uid=uid, nonce=task['action_nonce'], action='toggle_material',
+                      operator_open_id='personal', material_id=material, inbox_claim=claim)
+        self.assertTrue(bridge.handle_local_card_action(self.owner, **kwargs)['success'])
+        self.assertEqual('processed', self.store.select_one('feishu_inbox')['status'])
+        before = bridge._task_row(uid)['payload_json']
+        bridge.handle_local_card_action(self.owner, **kwargs)
+        self.assertEqual(before, bridge._task_row(uid)['payload_json'])
+
+    def test_revocation_waits_for_inflight_request_and_blocks_subsequent_update(self):
+        uid = self.create()
+        entered, release, revoked = threading.Event(), threading.Event(), threading.Event()
+        errors = []
+        def request(*args, **kwargs):
+            entered.set()
+            self.assertTrue(release.wait(5))
+            return {'data': {'message_id': 'inflight'}}
+        def revoke():
+            try:
+                bridge.clear_local_feishu_binding()
+                revoked.set()
+            except Exception as exc:
+                errors.append(exc)
+        with patch.object(self.actual, '_request', side_effect=request) as send:
+            worker = threading.Thread(target=self.actual._deliver_outbox_once)
+            worker.start()
+            self.assertTrue(entered.wait(5))
+            revoker = threading.Thread(target=revoke)
+            revoker.start()
+            self.assertFalse(revoked.wait(.05))
+            release.set()
+            worker.join(5)
+            revoker.join(5)
+            self.assertFalse(worker.is_alive())
+            self.assertTrue(revoked.is_set(), errors)
+            count = send.call_count
+            self.actual.update_task_cards(uid)
+            self.assertEqual(count, send.call_count)
 
     def test_ttl_and_uuid_window_never_rotate_uuid(self):
         for kind in ("ttl", "uuid_window"):

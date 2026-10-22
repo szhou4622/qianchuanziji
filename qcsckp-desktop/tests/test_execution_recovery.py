@@ -25,9 +25,11 @@ class ExecutionRecoveryTests(unittest.TestCase):
         self.owner = "test-owner"
         self.manager = SimpleNamespace(account=self.owner, bridge=lambda: None)
         for item in (patch.object(bridge, "DB_FILE", self.path),
+                     patch.object(bridge, "PROFILE_FILE", os.path.join(self.temp.name, "profiles.json")),
                      patch.object(bridge, "_MANAGER", self.manager)):
             item.start()
             self.addCleanup(item.stop)
+        bridge._update_profile(self.owner, {"authorized_open_id": "recipient"})
 
     def task(self, uid="card", *, action="retarget", status="verifying", payload=None):
         self.store.insert("local_retarget_task", {
@@ -36,7 +38,7 @@ class ExecutionRecoveryTests(unittest.TestCase):
             "claim_token": "claim", "active_dedupe_key": uid,
             "claim_expires_at": "2099-01-01 00:00:00",
             "expires_at": "2099-01-01 00:00:00", "payload_json": json.dumps(payload or {}),
-            "card_messages_json": json.dumps([{"message_id": "message-" + uid}]),
+            "card_messages_json": json.dumps([{"message_id": "message-" + uid, "receive_type": "open_id", "receive_id": "recipient"}]),
         })
         return uid
 

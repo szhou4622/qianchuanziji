@@ -532,6 +532,7 @@ class LocalFeishuTaskTests(unittest.TestCase):
                 "card_update_state": "pending",
             },
         )
+        store.update("local_retarget_task", {"status": "succeeded"}, where={"task_uid": task_uid})
         actual_bridge = bridge.LocalFeishuBridge("tool-user-a")
         with patch("utils.sqlite_store.DB_FILE", self.db_path), patch.object(
             actual_bridge,
@@ -1992,7 +1993,7 @@ class LocalFeishuBindingTests(unittest.TestCase):
         )
         cards = []
         self.instance._send_card = (
-            lambda receive_type, receive_id, card: cards.append(
+            lambda receive_type, receive_id, card, **kwargs: cards.append(
                 (receive_type, receive_id, card)
             )
             or "om_test"
