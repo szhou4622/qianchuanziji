@@ -1,0 +1,1994 @@
+{
+  "version": "0.1.66",
+  "channel": "production",
+  "build_revision": 31,
+  "source_repository": "https://github.com/szhou4622/qianchuan",
+  "source_commit": "91f2031cc9212382d36818730132afeaa93fd09e",
+  "source_tag": "qcsckp-production-v0.1.66-r31",
+  "package_url": "https://update.dadaozixun.com/downloads/QCSCKP/production/0.1.66/r31/QCSCKP-v0.1.66-production-r31-Windows-x64.zip",
+  "package_sha256": "340ce0b19f5cbbbdd9045c230d84964395bc609fb2f5c5d4b0a8ea895d7f72ff",
+  "package_size": 92877286,
+  "verified_static_assets": 22,
+  "files": [
+    {
+      "path": ".github/workflows/build-macos-notarized.yml",
+      "sha256": "ccfa45e40844c7a0fbd902f7ed326293d52015336632b772f1fab183be9d6969",
+      "sha256_lf": "ffa4913f1238e8a611fe11a087d2f0a9a7440be59ba4be40c19713d77bcae5c4"
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "fd46c7967d740114d750d724065c3b11962cbc4ea3d2ca75bac5ca9bf264eaa0",
+      "sha256_lf": "33915848a87d8e529a0a5eb878b2b273bc2013c09eba5592036b81183806083b"
+    },
+    {
+      "path": "UNIFIED_R20_WORK_LOG.md",
+      "sha256": "16346227e0001b11e2bccbbd7b85007db48677e539fafe19596ba782c7dd990f",
+      "sha256_lf": "3ea73d485fcea925d0deb96ff816dd8ca037dd704596d02217f086ad6175adca"
+    },
+    {
+      "path": "local-test/README.md",
+      "sha256": "f52df48d16e0d0a0fde26fd7083124a5169cea8f32ad15963c359b00ed56a996",
+      "sha256_lf": "0eb77f2e0a0bcc442c83867877c7f462ffd467d0971494f5e0bee3075b1d2f23"
+    },
+    {
+      "path": "local-test/bootstrap-runtime.ps1",
+      "sha256": "c2050b181720b94487aec4cc9206b8a0bf80260c5557871af1e40b88938f1276",
+      "sha256_lf": "dc84537e66eecfb9a8684adecaa706494fd64ece80ccf22e20ce99f8ff17705d"
+    },
+    {
+      "path": "local-test/callback_proxy.py",
+      "sha256": "aad8b64e3512227a5b788501f71c836f0d36053729a7fec647214fba27577def",
+      "sha256_lf": "343345c6388f9ddf87570a5387b2e311b0470a47ca6839b7835820fd4c0ed024"
+    },
+    {
+      "path": "local-test/check-live-preflight.py",
+      "sha256": "f2262fad59cd4ad7719ee3f4835964e478815d4993334bb603475519dd921a6f",
+      "sha256_lf": "5bb533d89b2ff24721956e3c62d53e6662b5e803917d52e03e1fc511c6795338"
+    },
+    {
+      "path": "local-test/config.local.php",
+      "sha256": "4459cab199f231887da4d5c14af95e39db45b69b85d374d9da0cabc19f0231ed",
+      "sha256_lf": "c01db31aef3808f9e6daa801b7e1a4522b3f69e2b2abc346e6ccaeef57edf05f"
+    },
+    {
+      "path": "local-test/expire-loop.ps1",
+      "sha256": "306a39755c6a4463f288537fbad6ce69e847d0b4c03b13e45c7015045a8f71b0",
+      "sha256_lf": "89bc6d5a8323ea49091e157b4ea1ec1d9786d7583446e96337a1adf9886c9972"
+    },
+    {
+      "path": "local-test/hash-password.php",
+      "sha256": "b16d254a3da4b28c8e2048a4262417586eff101d090d840b486492b237aebba9",
+      "sha256_lf": "ad5f7d850bfa19e1dad92a17503487f88e46ec21be0da40fbebe626cf07eef8c"
+    },
+    {
+      "path": "local-test/run-integration-tests.py",
+      "sha256": "7ef5a7a5eed29c0d92eca089ffb390b3c1d4d3ecdbc3747be0a0368d6cbd2012",
+      "sha256_lf": "e9aa875195b0b8d9ce57d6f674af4142bb04732ac3721806b28c41c1b34cf719"
+    },
+    {
+      "path": "local-test/run-isolated-integration.ps1",
+      "sha256": "1a12b38f0252c64de4aff53cd9dcb844760c8bd7816357c17014ecaf99624f84",
+      "sha256_lf": "c5deb19fa6bec17085791b02c0ef80f637a8842e3c1bd2f087f1549da5f82655"
+    },
+    {
+      "path": "local-test/schema.sql",
+      "sha256": "61d4676d3f1f631347d80b86b5c75bdd369480c60aaed446a3fb84267b4be926",
+      "sha256_lf": "b5d1f1a6fc15237ddb610bec70b42245950f62b51d8a412f83091f7c42e0e477"
+    },
+    {
+      "path": "local-test/set-test-target.ps1",
+      "sha256": "09288520b0f91a90ecb7a0e4314e09a4b2848b435b41356d51781f8d5828bb0e",
+      "sha256_lf": "979aa5932e54bdc3ebd37e0508f86005da7f2dc018caef84878cd0950f1b375e"
+    },
+    {
+      "path": "local-test/start-local.ps1",
+      "sha256": "1e217db9174fd2006db48da227ac76c5d5f3603dea2f7616781c53566eb71b23",
+      "sha256_lf": "2fc3cadc862a62d7db35fd531222acf566f94873e54a0f335ed962b5d9aa56ba"
+    },
+    {
+      "path": "local-test/start-test-desktop.ps1",
+      "sha256": "260b1cf58ccba83e2a2b897009b7c8686ab66af1967f472e12470fb0500ccef7",
+      "sha256_lf": "75121a6c74092a366555a38f63209f9076053480477a4dd959e6d10861aef617"
+    },
+    {
+      "path": "local-test/stop-local.ps1",
+      "sha256": "95e877fee49b5c7f08e3956ed6fac6d0148612c55bcbef8370c682acd8f42c4f",
+      "sha256_lf": "f97809e0b03747b8f333b9884a857f3c22d7942112a5cf350b825b4190894c46"
+    },
+    {
+      "path": "qcsckp-api-services/aadvid.php",
+      "sha256": "6513c06b2269a2a42fb6b634b7e0533cc51fe8bf26c991d34096845731a11a5c",
+      "sha256_lf": "6a5bfaf6f34ec5af7c0f0fe7606049df41791fb521983a7150724b24b1dd4121"
+    },
+    {
+      "path": "qcsckp-api-services/admin/agents.php",
+      "sha256": "669db5effff43721481b27e9212fd73340b0f825d86948bc6b3c4bebfd61aea8",
+      "sha256_lf": "5d3c812a8fa3d20526e2b69c1a88e69c9b3430c7d06919a1a1a493612d334829"
+    },
+    {
+      "path": "qcsckp-api-services/admin/desktop_release.php",
+      "sha256": "a56220a88b72cc07eae21977d332737334d792b3d6259292575efe0105195e5c",
+      "sha256_lf": "265f7c82fca68212eadfe4a74b16a36ca7d8ade20298136358e1a5e2a9fdb412"
+    },
+    {
+      "path": "qcsckp-api-services/admin/index.php",
+      "sha256": "cdf270c089e281017c3f0ab27451fc2e9397c719b23828b4957b8b5e01631384",
+      "sha256_lf": "b3b4ca4914824e8819a2db8ebdb3a7c262046d83a1733a06e46037550bdb4071"
+    },
+    {
+      "path": "qcsckp-api-services/admin/login.php",
+      "sha256": "0c164db724f085963ae7a845f1fb2940dc70e605bec5829bca2d072165e04372",
+      "sha256_lf": "e7aa2cde2c8c62302f5b5e9c286dc8902f0927df7446b426a577738076a8fb78"
+    },
+    {
+      "path": "qcsckp-api-services/admin/logout.php",
+      "sha256": "01eca08e5927371ec74880f243c320c08190470608d86b0befdfefe8ddc23daa",
+      "sha256_lf": "a102a24bde4cfb8503f9db03a3021635684c1a0d5118e556822d4e17d05938c2"
+    },
+    {
+      "path": "qcsckp-api-services/admin/portal_login_logs.php",
+      "sha256": "11c4515109768f583cbaed6e1261b2c4c33141ee44d5433500cb4727c7e762cb",
+      "sha256_lf": "809b7eb3248e07e27f113b24aa76a1cbd1252d103c8d1b94a961980dd6ccd202"
+    },
+    {
+      "path": "qcsckp-api-services/admin/users.php",
+      "sha256": "5b0b7dea78fe36d41954c12095d693188279ed6a8b32dd0d5e06b53e09cc5e9d",
+      "sha256_lf": "98d7b85b28140f1125321dd42669f4d6029fad90a9226e41be308a2d91f36ceb"
+    },
+    {
+      "path": "qcsckp-api-services/api/account.php",
+      "sha256": "9de7b37b2eed19578e8933380428b49bb76e507f96ee7114be54b4454ebf57e9",
+      "sha256_lf": "d4a5aa470f64a2d694c213817a8869e39aaab25da57b41e7d327e75333a1efa0"
+    },
+    {
+      "path": "qcsckp-api-services/api/auth/change-password.php",
+      "sha256": "7bab08c2b42644535489d18ec916559608bd346b80c4557030defac182fd8f94",
+      "sha256_lf": "0ed8102d59b71c55601549508b66c208d7151bbdbccddd8d8e4e08c75146d4c1"
+    },
+    {
+      "path": "qcsckp-api-services/api/auth/login.php",
+      "sha256": "9951714b209e5fdc3ffbe0e5616d6b5934ec0a95ca634af016df3fbc3357d669",
+      "sha256_lf": "a5ca6db892267f0c17e70508b0fe8d4d21a34ebe80adeaf68c3a0000c35730ab"
+    },
+    {
+      "path": "qcsckp-api-services/api/auth/logout.php",
+      "sha256": "96c3c6424b2562844763675782541cd231fea73737af46127007267c7ab1dacb",
+      "sha256_lf": "4714aeb8bea00fd6415ecc75fe0933b506d92eda2d44122bdce3b4aaf4d38ae4"
+    },
+    {
+      "path": "qcsckp-api-services/api/auth/refresh.php",
+      "sha256": "8b530ceb1eb099fd660b4bf777c22ce5259e71810f3b68fe8f67df94d05bcb7a",
+      "sha256_lf": "823ab33d232d195398de4b50b029cf1e72e35dba9a8ac731da74e892b93b3a74"
+    },
+    {
+      "path": "qcsckp-api-services/api/dashboard.php",
+      "sha256": "30602eab360150822d21e5259bb34124177d6e85a374be18708394ca14fb346e",
+      "sha256_lf": "50ea4c24a2bb41cae85059df3b609c53753d6507c78ae0b977d8309033a44457"
+    },
+    {
+      "path": "qcsckp-api-services/api/device/session.php",
+      "sha256": "1ab945de20ad734ced05790e60b44dc164a229150b5763452f341d3886609f64",
+      "sha256_lf": "69f4209cc2bc5aabc05e742094e3657de07459cbcb1a4773a223f2daae8967f7"
+    },
+    {
+      "path": "qcsckp-api-services/api/feishu/card_callback.php",
+      "sha256": "e553084ba6419c5252f68a9c64aeda50af60f06524835ee797eb2f517a691e04",
+      "sha256_lf": "6bd57c4678d040547af42921ab431ec764c1bce0a9edfff5d20488f4f598d941"
+    },
+    {
+      "path": "qcsckp-api-services/api/pmc_ad_detail_basic.php",
+      "sha256": "7a0831031b3bf40c470c2a7aa761bc0c951d7b3d4468be6e37de64ccbbfe8a39",
+      "sha256_lf": "244e90cb43315d2419450ea8c256f815f6ccc0969fb6242ca3649f9fa9b21723"
+    },
+    {
+      "path": "qcsckp-api-services/api/pmc_promotion_backup.php",
+      "sha256": "55faa1c6f396251b259636568fe473967ae02cf8afbe7394e7b4f52c71fd4569",
+      "sha256_lf": "ffef8b0cd5b9719b485e586f31e709ac3f4d0c4afa05a21de47654e09f4d743f"
+    },
+    {
+      "path": "qcsckp-api-services/api/retarget_tasks/create.php",
+      "sha256": "bbf92c0cfc7b7976b3c85c35428b91d7e7eba52035d1fe73d133eaef179a524d",
+      "sha256_lf": "19dbbb908bd020c3703d168baa70e47b64eb1c0ea4538c1a570e2ef0784cc2b9"
+    },
+    {
+      "path": "qcsckp-api-services/api/retarget_tasks/pull.php",
+      "sha256": "408e0fac0a30a4f6702881817bd7f6aa1f3dd9ae671d149593dc0b0414b4be16",
+      "sha256_lf": "4d7ac5627c8e98218d6a29377901967c8afde504d38da1210e55a0504faf29aa"
+    },
+    {
+      "path": "qcsckp-api-services/api/retarget_tasks/result.php",
+      "sha256": "8a55670ded399ee3353a81fb3a146726a113314a89d29126efa8e3e663001d77",
+      "sha256_lf": "555977c2c8c6a4eef501dc74c3674eb771f36a3c4f61a434ef79056763b1015a"
+    },
+    {
+      "path": "qcsckp-api-services/api/version.php",
+      "sha256": "7031c1ced8b1f84b7604b165f930be1005f5bc43e595d00233f96cd6c9a544c4",
+      "sha256_lf": "419378e13c5ec0fc9e2207b3a9e4e07096ad23a2ca70bd7a7ac8c7773ce0eb8b"
+    },
+    {
+      "path": "qcsckp-api-services/api/version_mac.php",
+      "sha256": "072a8e5009c8a1edc05c68d501eb85b93429670e85d493237ce338330b69c9f0",
+      "sha256_lf": "4f414e0191602b7d51a918089fddad8dd02fe97885a6b93ac915fdd9db499a20"
+    },
+    {
+      "path": "qcsckp-api-services/config.example.php",
+      "sha256": "66f8eebed895757df29df07b27e1da1a6204e9c0d2105fc826fb4c57f94d1170",
+      "sha256_lf": "61f689e37d8ae5354ac3da5d9dc25c945627c9c43e1fad7beece342221be55bb"
+    },
+    {
+      "path": "qcsckp-api-services/cron/expire_retarget_tasks.php",
+      "sha256": "f46a0a5282971276ea2a48d0a6286e82927b8d298b5d3cbe4d0f86d1e7775ce0",
+      "sha256_lf": "445a4b6cc3b8cede0082e8ed8a39747fb678960aa6639778309b0946442496d3"
+    },
+    {
+      "path": "qcsckp-api-services/dashboard.php",
+      "sha256": "8b338d8eff71870a7600dbbfbf4246e52e9f8f1c716a29ee595f7e01d4079e0b",
+      "sha256_lf": "24be38b10a5ce59ab8752665ce0d6b868e79d01e1c6441a78d8d187c3881bb85"
+    },
+    {
+      "path": "qcsckp-api-services/doc/FEISHU_RETARGET_SETUP.md",
+      "sha256": "89527e19edd66e033059a559aee692473b4aad78727aa333cfa2493e43cf3fdb",
+      "sha256_lf": "64e3eabdc11f82426d4e93aa11aa1bb58fe18219d99d3fda8b31fe36303e2b2e"
+    },
+    {
+      "path": "qcsckp-api-services/doc/README.md",
+      "sha256": "aa58c72112b0d8ecf87be44cd1243ea346c1d63011221c7cbb6b4d3f1cfc6c31",
+      "sha256_lf": "ee35296a3ef0016a80b35b8b7ec12598a04d0d500db05b878b227e11148de9ad"
+    },
+    {
+      "path": "qcsckp-api-services/doc/index.html",
+      "sha256": "c249ad8d4132c91025d8f160c06bdab6dfb9035c743f1e8330a03ad487cfc1a5",
+      "sha256_lf": "930c74f46519ca80bc128343ac73dfe8fb176d362807334e73f1d067d1911767"
+    },
+    {
+      "path": "qcsckp-api-services/doc/schema_feishu_retarget.sql",
+      "sha256": "c66e960265069afe24e3befe0b63064a802a5830337b5fd53e68334904c785fe",
+      "sha256_lf": "be9f685f018e54bd47b793c3be57e1fd5049a7547835d1eda235f9008de2186d"
+    },
+    {
+      "path": "qcsckp-api-services/doc/千川素材数据云端备份API说明.md",
+      "sha256": "e2d61ecc4eddf566bd36ec023e1b5c4555508324a0f329253ad1b3d574776ee4",
+      "sha256_lf": "d24ca1b0086c69775b3cc85c39456987112f28dd28c6d497ba8dc84869d5bf9c"
+    },
+    {
+      "path": "qcsckp-api-services/doc/广告详情基础信息同步API说明.md",
+      "sha256": "41ed6c6d0c5f20f1a2314236969d1c85504bb61a943fcaf7332ac060929acbca",
+      "sha256_lf": "08cf15a20d6bc4fad3ec303bf665e5ed14cb53dc6233f96e0bd154fe1236fe47"
+    },
+    {
+      "path": "qcsckp-api-services/doc/版本更新api文档.md",
+      "sha256": "a83039fb8237c9814413b628ea109cb45fdf90172ffd87ab71fc11e28de7ee78",
+      "sha256_lf": "b79932650b4c675034c80f860195b53b6cb189ecfb89c8111512a1615364c488"
+    },
+    {
+      "path": "qcsckp-api-services/doc/账号查询api文档.md",
+      "sha256": "cf719d6e75f55cd547b527b7206f0c333c70d94168aadc2bab20eafeb67e2381",
+      "sha256_lf": "8b70d856c8415a2e0fe5b8cdffb591bd770c6160e7244dfc797a78b04921381c"
+    },
+    {
+      "path": "qcsckp-api-services/includes/.htaccess",
+      "sha256": "0fa64845974fc5f22ab7c6543e0cf712e330fb27383bac830d12040c9993986b",
+      "sha256_lf": "5c29af58dae56f3ec1b65f8f8c127eb0168a0314cf6bf4efc9f5ce75657f1baa"
+    },
+    {
+      "path": "qcsckp-api-services/includes/auth.php",
+      "sha256": "369de77333e537c4b9055d93ef859e3d52c0a1b90a35642eb59e827f6345ba6a",
+      "sha256_lf": "d82ea34eb859d66c79c99a28c369d966d22ab1189526669d9fd733f2d0b83e20"
+    },
+    {
+      "path": "qcsckp-api-services/includes/bootstrap.php",
+      "sha256": "22289b660bd5eaed4a2a06e327d9d676f78572a49ebd853952b53999d0785d0c",
+      "sha256_lf": "cb64e073ed777071015fb63dc7b0bc24191cff80255ae1956599c5bfbab6c59c"
+    },
+    {
+      "path": "qcsckp-api-services/includes/dashboard_data.php",
+      "sha256": "77ff75b5b734793ec2bde8fb7458ebce5826e9835ed1fc0858dcfcd49e206bc9",
+      "sha256_lf": "be4097d236bf4eff354578ef2f65ca1e66af2f542733eac3338109fc8c30d8bf"
+    },
+    {
+      "path": "qcsckp-api-services/includes/dashboard_view.html",
+      "sha256": "ae604e0c3ed22e3b9c6050ffdcf7a60eafde6757df90b900fad65601c5bf52b0",
+      "sha256_lf": "ef92a9ca8985649dc05702b1a0d971170fdd1af96c4366c617ea91f5674d1383"
+    },
+    {
+      "path": "qcsckp-api-services/includes/db.php",
+      "sha256": "d537ee58f087e00c42e6a69800383796535e91262ea75bc4c4bd5c38e8b33329",
+      "sha256_lf": "fc1cf8ec2bb2c33ce6e7c323ec9c3ca5a4b5fc5b01207b16fc3b13838e66c9d5"
+    },
+    {
+      "path": "qcsckp-api-services/includes/desktop_auth.php",
+      "sha256": "e680b834d69680269f25d4dcf2a859e8b4e9417e227d8ab61c6f776d825aa192",
+      "sha256_lf": "ad005b77cbed123b3a41ad236780be2a49f9331c4a8ef0328cbde9c0a0e6cf5a"
+    },
+    {
+      "path": "qcsckp-api-services/includes/desktop_release.php",
+      "sha256": "41127a7edfebe0113f4334f92d79e1d7975f80d59956505a0ac1ceec444cb1b4",
+      "sha256_lf": "d4ef9da2cffec0b631e3bb9a34adb2815a5f82c77dc7a244ac76acbf2ec03c86"
+    },
+    {
+      "path": "qcsckp-api-services/includes/helpers.php",
+      "sha256": "66d37ead82824f29a7e23b97351b7e93805e734468c7b95ab9bafc113ca9544d",
+      "sha256_lf": "381c185aaf468e40a2ffd369d89c1d5522994f6fd92c213c3b98ee59aec0fd92"
+    },
+    {
+      "path": "qcsckp-api-services/includes/layout.php",
+      "sha256": "d2e2ccaf76d1e010a2c25b96dca58f83fb486aadaeb3dd7ddd239d76011b6255",
+      "sha256_lf": "280a372a21fed874d70600ae4037041ce9c8694dc3d12e9e0e8d37242fd63e48"
+    },
+    {
+      "path": "qcsckp-api-services/includes/portal_api_login_log.php",
+      "sha256": "fd1e1960f63245ed73a54c355864c56850576ad0955fec91529ad507982bee20",
+      "sha256_lf": "5932a4da96e331220b6531c3eda720175bfb60ac9fcade9f0d43857c8b540e33"
+    },
+    {
+      "path": "qcsckp-api-services/includes/portal_auth.php",
+      "sha256": "31f62c68b6ca921a1ff6cdf95a9acc5ace68e37efdea23bea601e7b720f0636c",
+      "sha256_lf": "88c80fd8d3b5ea78205c2653503906335d57d6fa0d393e71833e2367c4d818c6"
+    },
+    {
+      "path": "qcsckp-api-services/includes/retarget_task_common.php",
+      "sha256": "2d39efa831be46044c068a272576add54bed0759090fda282418dfc94073b1de",
+      "sha256_lf": "2d1336c81453a30336f29fadb3a542aa0041bf592b14bb69d0e54315a35c3951"
+    },
+    {
+      "path": "qcsckp-api-services/index.php",
+      "sha256": "e12205b5f905db9579bc2fd5876f2cfd450da5a372cc4c3d79b5584838207f9b",
+      "sha256_lf": "c57c459027a3d5d0ad2dfa5c5bf0731c75eaa851df33eab57e598168910b1d00"
+    },
+    {
+      "path": "qcsckp-api-services/js/dashboard_bridge.js",
+      "sha256": "6ab11dbf1715dea2e9c05c18a3604e1de664bbc40c9a29eca11fa1011c899456",
+      "sha256_lf": "8cf68c079be26c73c761e8fa6eddd6537082c8c55fb7a3d93f25a85f4130c568"
+    },
+    {
+      "path": "qcsckp-api-services/js/echarts.min.js",
+      "sha256": "4354309d8cd76effcf2bfa89d361604606665952ee3c7c61b000309924d06546",
+      "sha256_lf": "110c1f6fca633cf9471a7ca3c5d462e4cb2bf41afd1da1f21cfe67dcce726233"
+    },
+    {
+      "path": "qcsckp-api-services/js/lucide.js",
+      "sha256": "fef5cf6ff4886600f78634c4b2b38dfd70ec2771d8f19e14d46a8edcc961b158",
+      "sha256_lf": "3228c41acf38d05d43d0a373516f59032f1b77cd8e8c58c34fff9676504428f2"
+    },
+    {
+      "path": "qcsckp-api-services/js/messagebox.js",
+      "sha256": "d4b83dd15cfb99887deb34a1898b089f5fded44fb93b2a999051a20f758ea528",
+      "sha256_lf": "1c36a22b782bfc7ce464fc3753e416449b83b6498b7d7b0b21eca50b0f799bce"
+    },
+    {
+      "path": "qcsckp-api-services/js/tailwindcss.js",
+      "sha256": "15d7d747c0e2d4e4f8251d9cb1d6bc5934e20419df2861997b64ca962ab64766",
+      "sha256_lf": "20fda8a2158e83d6f78aa7e614ec1f7183ac10423cf956ded061cbe664c87bef"
+    },
+    {
+      "path": "qcsckp-api-services/local_feishu_setup.php",
+      "sha256": "ad35a79737aa7cd09db4af9f728acdab5b56fe701d6cf2b8b86879c58e7b25ef",
+      "sha256_lf": "a6d27e91806b3ea8918d3bb82d00cda51911e83af4a30d69ab36f05ab91eb0e9"
+    },
+    {
+      "path": "qcsckp-api-services/login.php",
+      "sha256": "9b744992b937aac9c4fbd92c57a426c852303a98a66807ed7eda55f787cdc4db",
+      "sha256_lf": "cffee7b0decc35463cb52421c091540e7bdb05fbdc3020f632089539ac439aee"
+    },
+    {
+      "path": "qcsckp-api-services/logout.php",
+      "sha256": "373d0a4a32fc5f44949817c71a67a3f62603c72e633a90b6ee98dba758cb3ad2",
+      "sha256_lf": "9e3131e3ec30560cf0a271ce2fb651e699ee9e9c78ae501e5c299a8f84abfa65"
+    },
+    {
+      "path": "qcsckp-api-services/switch_aadvid.php",
+      "sha256": "b81b2b9ba80a9b134daf63319f02daf7ba913058c25de88d64286f1dcc7862b4",
+      "sha256_lf": "1d562eeed4b6b9b791a09f60f1ff247e40092182539612484d9ede322508f44d"
+    },
+    {
+      "path": "qcsckp-desktop/.gitattributes",
+      "sha256": "3b7c9b0286785503940747f16edcfcf859772a62efe8d180553f775f1bdd123f",
+      "sha256_lf": "f6bf5fd17726ea1bd771f6599a69c187a1053d803db88b0880a9d4468ea14ba8"
+    },
+    {
+      "path": "qcsckp-desktop/.gitignore",
+      "sha256": "71f3400e066d9c4bfec5da5a19228c7cbc71cd5c55511cb861bf0f27f29a366b",
+      "sha256_lf": "78d842703bfddd15eb78f0f6148cf93640737527119d48dd09687b491fa776ed"
+    },
+    {
+      "path": "qcsckp-desktop/.python-version",
+      "sha256": "8dfda54ba2f66ab3a8ebab460f4338bbeea1fb1e0f85ce06fe3530aa3c64679b",
+      "sha256_lf": "7b55f8e67b5623c4bef3fa691288da9437d79d3aba156de48d481db32ac7d16d"
+    },
+    {
+      "path": "qcsckp-desktop/README.md",
+      "sha256": "4933e6b645fdd356d9fad580cb75d56945c738f7234d9cfe62693c82189897fe",
+      "sha256_lf": "341fc494c7c72e8149fe390d4f176b09affdc19697a6c9ee847c57a717f73f68"
+    },
+    {
+      "path": "qcsckp-desktop/RELEASE_NOTES_v0.1.58.md",
+      "sha256": "43b66260ddf82e308fe7aa245e728369db4cb6f6109553f2c73ae44705d645b4",
+      "sha256_lf": "8c66dfa76df8edd8008508a310b55a2fc345639c796322a59b27bcaca5360995"
+    },
+    {
+      "path": "qcsckp-desktop/RELEASE_NOTES_v0.1.59.md",
+      "sha256": "b4b5e7600d138290c3f6d414881d8dc7b299e8b599e03f0bb7ab9990c66ec2fe",
+      "sha256_lf": "8c571fd5c527d48ed6024156a17f01a55709b4ec992f06ffa87e638e926d669f"
+    },
+    {
+      "path": "qcsckp-desktop/RELEASE_NOTES_v0.1.60.md",
+      "sha256": "1b2542bb0eb7c8c129ab67c231995550d8351577a989637e30a9e3b44481429c",
+      "sha256_lf": "690b30f9e1dac5e6ac77b2990045f7d8c8573350ebf3db790cc80466ec8ddccd"
+    },
+    {
+      "path": "qcsckp-desktop/RELEASE_NOTES_v0.1.61.md",
+      "sha256": "c42186261dec5b13044aa9013de3912c17a31d1256d66fafa000e1b163470852",
+      "sha256_lf": "79b908f9311c1aa88221c996c03ab73908745071132ac77b8dcd89b4bf5a06ca"
+    },
+    {
+      "path": "qcsckp-desktop/RELEASE_NOTES_v0.1.62.md",
+      "sha256": "48ddd9d0e2ad861d87f4b6869d8fc1aa3b891270ef17d0ee3d57eecf98015a99",
+      "sha256_lf": "d65be9f5dd0af9c2e7a8fdc81303f0e08d23f0f927b911d8ad4d52744643c702"
+    },
+    {
+      "path": "qcsckp-desktop/RELEASE_NOTES_v0.1.63.md",
+      "sha256": "de991037285b9dbab089de21f8478770e00bd395e5983d0f70e14a246130711a",
+      "sha256_lf": "f23c4332b0ff67ffa78d65b319371ec8b1e595bce174632aae5c0afc7804dfd5"
+    },
+    {
+      "path": "qcsckp-desktop/RELEASE_NOTES_v0.1.64.md",
+      "sha256": "182cba9830c0ebf47ff0ea4e968b37f24297298ef9e1f16beb960c2184fbc256",
+      "sha256_lf": "62f2a888c73f78d6a12afc0e53fb545da719c02902ae354ae4f238f4c935fe37"
+    },
+    {
+      "path": "qcsckp-desktop/RELEASE_NOTES_v0.1.65.md",
+      "sha256": "49bd7d9a7fe877a9924095de6dfde20ed236104915aba1069b8feceb2d077412",
+      "sha256_lf": "3cf08a4edcd44ac9a48ebe88b66b5bc8c6b2ec3cee9892117077ee8ecfe068ef"
+    },
+    {
+      "path": "qcsckp-desktop/RELEASE_NOTES_v0.1.66-r20.md",
+      "sha256": "87b45fb51f327440249a18af83dcb42fadea6649da2c36f99cfac5ba0ecc13ef",
+      "sha256_lf": "954f618dcefa82346e295cb18a282a1299957902a7aa995c9cee2db235114d4f"
+    },
+    {
+      "path": "qcsckp-desktop/RELEASE_NOTES_v0.1.66-r21.md",
+      "sha256": "72d1af7e13ab98c91875afd94b0319f8a418f0f90c4555a0e94474eb8c3a923c",
+      "sha256_lf": "7484c002626e3ba92f98166abdc7dc95b7c5b98ac0b15e5bb071532561252aa2"
+    },
+    {
+      "path": "qcsckp-desktop/RELEASE_NOTES_v0.1.66-r22.md",
+      "sha256": "4c66060d717b0d3b3e8112a0814403d8e86484d062fefc72b2d0199aba9805d4",
+      "sha256_lf": "146b1dc907122fef18aaa68d48fa33203f3d8cfd4272472d61336ce58cacda69"
+    },
+    {
+      "path": "qcsckp-desktop/RELEASE_NOTES_v0.1.66-r23.md",
+      "sha256": "394893874845e3ff353af990c78cfc42b3454871d3e3894b36aae1c3828c83c4",
+      "sha256_lf": "6b20159ae0911bcc548a0e598cb49f55f6fcbb2cd8f76c7449e0d1da6d7707b1"
+    },
+    {
+      "path": "qcsckp-desktop/RELEASE_NOTES_v0.1.66-r24.md",
+      "sha256": "69407fed80b3a40ddc7d4bf67ab5917f9909c2772c4c6630ab17c211b55262ee",
+      "sha256_lf": "31359f5b4643209ed8f55b0f7998eb092d9bc4de97450466665633264cb97e1a"
+    },
+    {
+      "path": "qcsckp-desktop/RELEASE_NOTES_v0.1.66-r25.md",
+      "sha256": "eca8e8e2e409f436dd2788c7d02a3ddf0ce71610ad7bd77411f7dc2e806b7d86",
+      "sha256_lf": "3cdec0392d9f0ae6fef998a950b32e75b66008b707b32e125b5cdefd757002bd"
+    },
+    {
+      "path": "qcsckp-desktop/RELEASE_NOTES_v0.1.66-r26.md",
+      "sha256": "1643c25495b6aa1a252152d7fd0ce86788da7914de985239c95a86ea32e09f8d",
+      "sha256_lf": "03bcd87aa60d007fdc4d5f1f39432876f3ed6fb10ca2c39451232efa70a35805"
+    },
+    {
+      "path": "qcsckp-desktop/RELEASE_NOTES_v0.1.66-r27.md",
+      "sha256": "b6ed6d3a1293a0bc3b80ac1186454e32ddc04fbe3f56cde2b6f13c34bb20c5e4",
+      "sha256_lf": "04151a5291c772ac4819a5bbb5e381c854d154d3db6365181b7313db5348cccc"
+    },
+    {
+      "path": "qcsckp-desktop/RELEASE_NOTES_v0.1.66-r28.md",
+      "sha256": "0db3b7fc7eb42eea5b60ffad7508cd4c90c10be19c0d63f1f2ae3f92d187b770",
+      "sha256_lf": "f08ed0e10425bc28a28e51d2164edc54a4b9e65d7733e5f73c69740c53e76ec1"
+    },
+    {
+      "path": "qcsckp-desktop/RELEASE_NOTES_v0.1.66-r29.md",
+      "sha256": "0031419c0ebcf10993a4243d3c7879f57fe4a3b820052b589c985143c24f9dd3",
+      "sha256_lf": "2e9b31d614fa80db7febb7d6c6194cb562c75c663deaec9458379c5321a3e319"
+    },
+    {
+      "path": "qcsckp-desktop/RELEASE_NOTES_v0.1.66-r30.md",
+      "sha256": "954a7b041f3dd20248956212bbaa5da767bf25270a399b693647645be8018b7e",
+      "sha256_lf": "c8f95ff9208a2373c7628ba9026bf87f92ecbc5db1470d42669603306960ad47"
+    },
+    {
+      "path": "qcsckp-desktop/RELEASE_NOTES_v0.1.66-r31.md",
+      "sha256": "fa7f51314448fe1a26afe67037a6e2952754eb3b4acc324f2d18e558861562d4",
+      "sha256_lf": "fa7f51314448fe1a26afe67037a6e2952754eb3b4acc324f2d18e558861562d4"
+    },
+    {
+      "path": "qcsckp-desktop/api/__init__.py",
+      "sha256": "5686f8ccca37cfa5e7ba5e20af9276bb0fcfc1183185086fd8510b33408acf5f",
+      "sha256_lf": "35900d65105d926f966399d1e8d1da39161fdf14f4433e30a3014b9e95e80a9d"
+    },
+    {
+      "path": "qcsckp-desktop/api/account_auth.py",
+      "sha256": "3d1fb12d9dc465fb5ed0e817919f8b6795a884d1e5a03dc6e7274765eba5ff79",
+      "sha256_lf": "d0288eecc161cdaae990cd4012a48bbb5df8cf89824b11e5310868601d6cc19a"
+    },
+    {
+      "path": "qcsckp-desktop/api/dashboard.py",
+      "sha256": "b14ecd1ca7a16f8c1e8123f8f16d4c5086752c813c9fad5823a9ac9658713b06",
+      "sha256_lf": "1c70ad84c8cf2c60e0483ea95b5930238231e28750d7c154d052dcd498d67b85"
+    },
+    {
+      "path": "qcsckp-desktop/api/dashboard_optimized.py",
+      "sha256": "f3b1a84fadebd029ed3c6ada63ef0fe859dca7af4a9f945d50fcaeb7ad6edac8",
+      "sha256_lf": "7d093e6a06020e503a2d851fd1d1c89ff6dbcd624637db41e52d73f726cf90bd"
+    },
+    {
+      "path": "qcsckp-desktop/api/operation_events.py",
+      "sha256": "36e8e2ce95881e75b1afaa99ef3c57419fe3c9ba904dd8a18ed09a6c6ef84ee1",
+      "sha256_lf": "92865e5cb808cdfd1811798c43129387b3d969409f2cba23745ed6732eb756a3"
+    },
+    {
+      "path": "qcsckp-desktop/api/promotion_targets.py",
+      "sha256": "bc23577395f155541300787d04141ac8a4351d964dec448ad207b5736acf4a53",
+      "sha256_lf": "82b77b6bb4117c0e53e2114da18fbba7fa18c764426b1acc7b4ca9688ef5e889"
+    },
+    {
+      "path": "qcsckp-desktop/api/regulation_runs.py",
+      "sha256": "59804a8404719afb6835ed98d350818fb4c639b02c3d4024d6cb167087b07d63",
+      "sha256_lf": "0f98adaec52a9ed5a3a1ffa9791082fc08e0b0ca60c79f7a70130b6d6dfd9409"
+    },
+    {
+      "path": "qcsckp-desktop/api/retargeting_runs.py",
+      "sha256": "67b38a12e7413aa9228a20fb6f2b9afcf6acedf8d91761eb20b27cd0cd549aaa",
+      "sha256_lf": "f401a1aff57df0352a5fb91de8fda30dbc7019a1a0f08deb0fb5d23638e1b259"
+    },
+    {
+      "path": "qcsckp-desktop/api/rule_regulation_config.py",
+      "sha256": "5572f93c19d00844947595ff69e3e5d78c79c9be2269020a73a63837cc442d9d",
+      "sha256_lf": "5c93b4c1713ec341830da3083cfe0d052b2582a4318a4d6b89e8ce24922a8d4f"
+    },
+    {
+      "path": "qcsckp-desktop/api/rule_retargeting_config.py",
+      "sha256": "5a02790d5bd3ba726f0555d1e6f860c983e59b1f80f500fb41cdd6dff81276ce",
+      "sha256_lf": "2d6260c2de96f8aaf62c00509d5227258554cc23fe9355da6b38c66ab49e7b56"
+    },
+    {
+      "path": "qcsckp-desktop/api/views.py",
+      "sha256": "bb54961a811347b8537c31f27ae964f9b21908035f8a50f34a6818540f7f840b",
+      "sha256_lf": "1e6dd180cd6136e935975fadc4e82e583442d17df0e89106aa63074bc09117ff"
+    },
+    {
+      "path": "qcsckp-desktop/autostart_launcher.py",
+      "sha256": "8bdc71785227ef070db9f6fcab1c614b042c6a84edc85e7f0b2d18f4b3772279",
+      "sha256_lf": "8fc635777341b6c317d6f61ef1ff1d044eb47d999fecdc641537a5f37828f7ed"
+    },
+    {
+      "path": "qcsckp-desktop/channel_runtime.py",
+      "sha256": "934df4826f5eb394ddbcd9154c5c5f82d60d6923688c0b886cf30678c16bcd6b",
+      "sha256_lf": "e7f5849bf6de9a73ed91a89fa1da23b81d9fa4c2626c98f277edfa27dbabad5b"
+    },
+    {
+      "path": "qcsckp-desktop/config.py",
+      "sha256": "f26effbf6b672dbbd4da146972539c8f35e4009a86940c3ef7dfe78f40a96c05",
+      "sha256_lf": "e734f2e59b59bdfb61ce344a765b8617e740f46be26f661e406047ce82c5a1cc"
+    },
+    {
+      "path": "qcsckp-desktop/desktop_v1a.py",
+      "sha256": "31cad3f0a1f368c31d45ca8fa87afbea2684827f1e72492ea207d93622dfb048",
+      "sha256_lf": "31ed3fff8703c7913e2bdf181e325fefa698d795f2e1346669a23cba07560135"
+    },
+    {
+      "path": "qcsckp-desktop/docs/2026-09-05-review-fixes.md",
+      "sha256": "c5464287c5e2ff1ac001414fca5076907be51cac1b5c0e5dbcbc43e3c6164b9c",
+      "sha256_lf": "3606fa6c1673d32c24090493869b64f6b946d58dd71ff1fb1fb18f1091fc38d8"
+    },
+    {
+      "path": "qcsckp-desktop/docs/DATABASE_FIELDS.md",
+      "sha256": "e2a2f89e04c3af6eb65864f109413a29dc5d63207ee0fc7962e01900b4e8c96e",
+      "sha256_lf": "57e6f07f59c1dea511d4c36709b98d3c12d7a85f40bbecc541bd41698e6eceec"
+    },
+    {
+      "path": "qcsckp-desktop/docs/FEISHU_BITABLE_SYNC.md",
+      "sha256": "4fed570f317122bb23a78479996f1d5b388fcd6e85cbb8bd3ec8db8543ee036b",
+      "sha256_lf": "fc7b05bd4c327734bd2dfc86f68fec1c3505a43535ad31b923a6521d3463ffed"
+    },
+    {
+      "path": "qcsckp-desktop/docs/RULE_RETARGETING_ARCHITECTURE.md",
+      "sha256": "fbd5dc3acf44515c51538bdaa8d61a96cdce44208e5c942f19732cb436b7dfec",
+      "sha256_lf": "1a76e2b700c1882308e5908e9b557123be581052567d79e058064bb8fa7fdc74"
+    },
+    {
+      "path": "qcsckp-desktop/docs/SYSTEM_ARCHITECTURE.md",
+      "sha256": "d61a11c732f413bb4fbadac67d34ca1647d49820dd810722e13054d552674647",
+      "sha256_lf": "0ef3b660cd149332ac83cc3a6c551914657dfc9fed24e3c7ac0bfe29ff51cfa8"
+    },
+    {
+      "path": "qcsckp-desktop/docs/channel-release-notes.md",
+      "sha256": "fe3e63c2273d036de6fc6a145cf32dc8c03c19b9f90c3100d9182a8830656bae",
+      "sha256_lf": "ad9ca4f199cabeef427c5bf4a42aa42db84e29e952eb85f594c720ffd91377c1"
+    },
+    {
+      "path": "qcsckp-desktop/docs/official_api_migration.md",
+      "sha256": "a225072a156a5334e8a6e92891e898a7f640bcf0eb36eddca1d93d8001d4658f",
+      "sha256_lf": "489d2c38f3786597e69659a40fbfbee2691f7df3d5b0e680696801b586144138"
+    },
+    {
+      "path": "qcsckp-desktop/docs/r19-submission-and-recovery.md",
+      "sha256": "9c556e93f66f205a493dd97555a4baa9b110a4c0915037cb40c88fab50f513c9",
+      "sha256_lf": "d71e64cd2f4bf1464f29b7a50e1e3fd79e16dd8708435a021e2e6550a5a12561"
+    },
+    {
+      "path": "qcsckp-desktop/docs/schema_pmc_promotion_material.mysql.sql",
+      "sha256": "b36c15f5469f3fa17af4848b347e7c15e7987dfa5a9cf4e2828dbff0644afd84",
+      "sha256_lf": "cb547e35922a7d65aaa87f267e66ae6f6b2c22b40792c8e6c372a373ecfef14e"
+    },
+    {
+      "path": "qcsckp-desktop/docs/schema_pmc_regulation_run.sqlite.sql",
+      "sha256": "3b5ca1e78f52f72303da66f2347431a2830b44068aa8e1a1b3c82525513929cb",
+      "sha256_lf": "84fd3c55cb1a8328a6b9a52956d0f41ee449790405337836262c776290b860be"
+    },
+    {
+      "path": "qcsckp-desktop/docs/schema_pmc_retargeting_rate_limit.sqlite.sql",
+      "sha256": "31b976a3316c26959d96b19e56caba3811d47f5a2e94db8ab2dddd3a72797cdc",
+      "sha256_lf": "46c5e5e9340542124f232d46f99e64009df7c9c76ed64de04df69c30c37c93b2"
+    },
+    {
+      "path": "qcsckp-desktop/docs/schema_pmc_retargeting_run.sqlite.sql",
+      "sha256": "ea291a68cff5863a2ce0efbd073a72b5a66bd424fd17ece9de6288350aa62c93",
+      "sha256_lf": "44698e216c2407d695740e9883af1d05b1d807e3f5f434bf39334afd226d704a"
+    },
+    {
+      "path": "qcsckp-desktop/docs/schema_pmc_roi2_assist_task.sqlite.sql",
+      "sha256": "81ac67cf43d7b8e452e1c80f202f428992f8edcaddad07bd320505257f26fa3c",
+      "sha256_lf": "25e2b08667005fc194553720db247cefb5e852e867e159cb7d895ea0f20d0057"
+    },
+    {
+      "path": "qcsckp-desktop/docs/三渠道发布与诊断.md",
+      "sha256": "d1edfb330953822ed0bc9704e7fe88909af046698df78a7deea5b7f3e2fd7fef",
+      "sha256_lf": "5fbdc817f598a3e48c7a19b90c456a208cf26c597a02a839dc6b30322345fc7e"
+    },
+    {
+      "path": "qcsckp-desktop/docs/千川OAuth用户自有回调接入.md",
+      "sha256": "1ad656eabb30c7bb80c66ba77398a42da0208611562ce1cf810c153b13bb2724",
+      "sha256_lf": "66cb90eff2a6a29267f6811e035b14ee018c4bcf5c46df1c5a65392d01eb76b6"
+    },
+    {
+      "path": "qcsckp-desktop/docs/千川素材看盘工具使用SOP-v0.1.39.md",
+      "sha256": "213ff271155efbef24f5389657b825a9050b4dda550c8bc3b1b6efe4389a4120",
+      "sha256_lf": "31541fe981db9be470af74670e2ff70388d7f23bfd93b0345b32516eb3cda408"
+    },
+    {
+      "path": "qcsckp-desktop/docs/测试1版-rc27-回滚说明.md",
+      "sha256": "5b8cdba4f1ffea4c04ebac87dc7bd69666fa6d028851e500aee381c0e2c60878",
+      "sha256_lf": "8022f763b20909f09d27bac4d425f9a1859447c339311ae6512514cd404a5692"
+    },
+    {
+      "path": "qcsckp-desktop/docs/测试1版-rc28-回滚说明.md",
+      "sha256": "0e24bed13d604fb7accc2e99935b4737cf3a64454ad1a1cefed081a516afc0bb",
+      "sha256_lf": "602f572957925c2c44b66da9d0eb1e272e562e79f10636ceb7ef54d204157c70"
+    },
+    {
+      "path": "qcsckp-desktop/docs/测试1版-rc28.3-回滚说明.md",
+      "sha256": "60f847e90d1595cb09709ca4052ba201239eee6e1c909dbfa1b95bf150ad8cad",
+      "sha256_lf": "d2de8b09262f678743b80dd54f8c653522cfc6e87d3ae96f103bf170a4e59778"
+    },
+    {
+      "path": "qcsckp-desktop/docs/采集数据不全修复方案.md",
+      "sha256": "507a324f2020ff8f748fd0fc6c4b48b9fc96e5799ec5c108f5154a9ebb732068",
+      "sha256_lf": "3158dbf643d11f0ad5c70551eba50746ae8c01185df06ffae036397a9c6c3196"
+    },
+    {
+      "path": "qcsckp-desktop/gui_app.py",
+      "sha256": "d2dccb7b31354e4552ed5db0a6402bd8c530b15c4a3cb4e98261617beb72fdb1",
+      "sha256_lf": "762e118a439e641d8d630341fc3de409308ea5d7e26f2cc9fc6edf32fef27b1e"
+    },
+    {
+      "path": "qcsckp-desktop/hook/__init__.py",
+      "sha256": "0e63414c0f40a77d6d0cf161c4eba2da9c522b01f5fb5704afce74b19eb25bd7",
+      "sha256_lf": "e665dddbcabf4bdc6eb49ce53179ec9bbb8c5a55355033004f9c80b0a6c464d8"
+    },
+    {
+      "path": "qcsckp-desktop/hook/dingtalk_bot.py",
+      "sha256": "595d6f223e949d3e4442ca33ae252d4f956c18804d16075287720260b35b8b06",
+      "sha256_lf": "93c4cce7a67daa71648c429c1170862658500a048fb26b267efca767db8377c5"
+    },
+    {
+      "path": "qcsckp-desktop/hook/feishu_bot.py",
+      "sha256": "4a610644ad58a539365555dfd90bf6382d2ad856cf663206b5722ace7d205542",
+      "sha256_lf": "bff92bd2f819bbbdadaa0a9ea50a97678dd6dce647ccf3096f69998fa51c0913"
+    },
+    {
+      "path": "qcsckp-desktop/logo.ico",
+      "sha256": "4b756025e1cf8fabdae1929bf277f6d86d2c2d0e3378c4a19b47aa391f274f67",
+      "sha256_lf": "4b756025e1cf8fabdae1929bf277f6d86d2c2d0e3378c4a19b47aa391f274f67"
+    },
+    {
+      "path": "qcsckp-desktop/packaging/macos/build_macos.sh",
+      "sha256": "b32639b182ca92e11cddee32e89ef4af8fa676d8a4fd7c3aaf948e5abbd376a1",
+      "sha256_lf": "b32639b182ca92e11cddee32e89ef4af8fa676d8a4fd7c3aaf948e5abbd376a1"
+    },
+    {
+      "path": "qcsckp-desktop/packaging/macos/configure_github_notary_secrets.ps1",
+      "sha256": "ddd06c878ade4d964d7c35cc0a16ab5797c61faf6dd13fc8d7ebef06edb88709",
+      "sha256_lf": "391a7d0af50e445b5037dc1f970d2f49778804269041c7bd2ecaa87f9b0d5539"
+    },
+    {
+      "path": "qcsckp-desktop/packaging/windows/QCSCKP-License-Repair.cmd",
+      "sha256": "0f051bf1ebf1d40ca0c9c09bb3f269033a893124264b802f45e2ba0cc262009a",
+      "sha256_lf": "3de9750a103056e85af2a9d7401122e040fb70d2cdd4e0dc7ada8c0520abeb54"
+    },
+    {
+      "path": "qcsckp-desktop/packaging/windows/QCSCKP-Startup-Diagnostics.cmd",
+      "sha256": "486db61b885afd8a3fd9f5543067cdb88e3691c007d15f120b57764a92e958fe",
+      "sha256_lf": "c11b75dd27179c3f3d9268d84892d3e1db7ecb749039f4ed054b64f3e6c97b06"
+    },
+    {
+      "path": "qcsckp-desktop/packaging/windows/README-Windows.txt",
+      "sha256": "5fb74b585aa3088e2370cedd175e28e6d00669edfedea9a12941b327fbb41a17",
+      "sha256_lf": "d09deef1ea0077c7249016121daa17ebde2abbaac0bc4151d543d649046f90cf"
+    },
+    {
+      "path": "qcsckp-desktop/packaging/windows/apply_channel_update.ps1",
+      "sha256": "65f40104d82840603a465370b8e7fe88f5ee002c0e7dc84455e00e57576daca0",
+      "sha256_lf": "f8120d358ff05af0a43531aefca92f4bd977acb1dc0931542f864c0f9ec66a8e"
+    },
+    {
+      "path": "qcsckp-desktop/packaging/windows/build_windows.ps1",
+      "sha256": "db01aab44a5d159d9ca838031dd82ef5d5f444bbcbd374853a0a4b503b854ef3",
+      "sha256_lf": "bb2db259a55cdbca95a40f0876f451d1f07b3e9082be01f4bcc3b7e107ac181b"
+    },
+    {
+      "path": "qcsckp-desktop/packaging/windows/deploy_update_release.sh",
+      "sha256": "7f214d3b5b4c48e5f572ba1a54857fc7a65fd3fd191de858c4255f2328a82bdc",
+      "sha256_lf": "7f214d3b5b4c48e5f572ba1a54857fc7a65fd3fd191de858c4255f2328a82bdc"
+    },
+    {
+      "path": "qcsckp-desktop/packaging/windows/verify_release_privacy.py",
+      "sha256": "9ef9d84f3a3a851b0fccd2cb887356abf80b5b31fffadf5f0b2114fee3f67c95",
+      "sha256_lf": "ec8e468e20323186a47ce4682e5b08f1d133b5ed4ce6b0492d1e4418245edf99"
+    },
+    {
+      "path": "qcsckp-desktop/packaging/windows/verify_runtime_archive.py",
+      "sha256": "c463d35ffa536105398c427e5ecc1adc84bddbe3eda4a7d2fc796c104cabdcbc",
+      "sha256_lf": "f89052c3927c41054aa30ab4f5e44d569cc96eb809aa7fe8132d5259061be08b"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/IMPLEMENTATION_STATUS.md",
+      "sha256": "9ee8338938cdad9d6b280b77718671a718d151cfeaa3b8a0dabad703d3a9531a",
+      "sha256_lf": "9b7cad42a8a6a9d60907806c395b20b4b3cfbb1ec57f1d081fddccb36e347dcc"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/README.md",
+      "sha256": "7f234c212c001664cdf224423b653c079f75a90189819bc9c4f34474a23beb72",
+      "sha256_lf": "c8b8dd0d5a7992b4c318ae6564434758656af64e3fec23fabd3de334e3982b37"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/__init__.py",
+      "sha256": "f649c23f2dfa2dd49bd2e92c7541aeac761b8312149d56ef24ceb911999728e8",
+      "sha256_lf": "4b03a17a74c547852f06c23abbbec244afa7b8f48f121358b11adfe2303089e9"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/__main__.py",
+      "sha256": "01610b9f1d93d51dbe2900bc4d39d63d941500b97f806a80f9be896166309334",
+      "sha256_lf": "948969c0bf08caa86d456a716103bbc27137a983807eadc49919c8b33bac2c1d"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/adapters/__init__.py",
+      "sha256": "e2edecbd6da174e6660f7b29d2155606c374281ff3893acbe91f7f9779c91d84",
+      "sha256_lf": "fa7705b031f2cafda0fc72e0cfb1985d78291b449baec623bfe8618b400db86d"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/adapters/base.py",
+      "sha256": "02560500504d3dcc0aaeeb31812e5106a4a18bea6bc414fea91e05b4a3600cf4",
+      "sha256_lf": "45d19a0ec691fbd8693119d7b2a7f0ea9f9c75d5a03f59aa13994e8da3a1d5d9"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/adapters/chengfang_live.py",
+      "sha256": "57d4d46693199cb2f9b8c9232ba7cda30db64926ff39d09f148ba9c8aede64d0",
+      "sha256_lf": "50e8e91bdf5d8be27f020d514d093f473133dbc11929aa9a3e96473a3832e37e"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/adapters/chengfang_product.py",
+      "sha256": "3e2a256875e47d2d9eb41fbe56ef24ccf8cc250a9b679cdc87c051e19c3b4eca",
+      "sha256_lf": "df95a9dd7fea957916bd7c0dbc9d3562c283f94369f0232cedb1bb75cfc57235"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/adapters/global_live.py",
+      "sha256": "a3e0f0c052d24f387db4cd98d9978bd7ea1cef44c40b0326b6ac8a4aec1f0ebe",
+      "sha256_lf": "1d584e3232bcefc36960a895d1427e9f51e7f46fae63cc9148ffbf7498cac251"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/adapters/global_product.py",
+      "sha256": "7b3bf05739f54d59158b02691bc07ffad86b53abfe78084420c29719d71e1240",
+      "sha256_lf": "726288ffdcffeb445d77c479e87059232aa4a6b49d666a1704ef5417e68d5faa"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/adapters/models.py",
+      "sha256": "ab8df184b386b6ec864e9d7e2a959dcc03efd6a7c25ac516cbac3ea0874c9e1c",
+      "sha256_lf": "14cfd3982b59b16deaee16262f9b4c0f80f57f529160b2b419ade7e0b1a94a05"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/adapters/registry.py",
+      "sha256": "590257f0a7abd5cfe12337ae020f9bffd323acf525d3a7810dc32fb103cead93",
+      "sha256_lf": "f41bacb6461ab0947ef38001c39985911844d47cf66424eb5a873a9e7b08a74c"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/api_server.py",
+      "sha256": "ffa7bc932efc8c2be353aefe2fecbaaef314ad5d5f4c4b0b56f2914b0b07cde8",
+      "sha256_lf": "b6e9927f43db9cd94e95256736cd290b3bdf0407b001c92d230994ba296dbdc3"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/auth.py",
+      "sha256": "a0ba06f027fc769cd34eabee65c2cab180815e61d71c546cb14a2b2d38e6ee45",
+      "sha256_lf": "8aada1d8da39b7abe1d2afc01812f5a998887167081ce4c691493d98e8ddb621"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/browser_worker.py",
+      "sha256": "d3b5c4d36bb6b030bbbea0c9b47f08e6422f66d1a9c3b1292ea83d69b5585259",
+      "sha256_lf": "62058c059e460cbd7ac10d093e42e4f7797bcacd33ca49184678634d9cb788d9"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/candidates.py",
+      "sha256": "f000ab170dbad7d6f947f0969d5138540e3701330e16ca1cba9febf1e84c7e37",
+      "sha256_lf": "d286fa80089aed341e31d93b95deb41d6be9fbdb8be0d6def675f74e803e8af4"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/collections.py",
+      "sha256": "d11dbdfd94b9824a534d51e9652bbdc12b1108730a8a228897e174883fcb3bd5",
+      "sha256_lf": "d4fa556bfab4885aa8c0262f8a89d2bc67491acd8edc79d1375be8ae065ceccc"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/constants.py",
+      "sha256": "0a6717239febab13558cd4425b4737b2421efbb73a4028d69f8957af5666fd4d",
+      "sha256_lf": "32b57e05c0dddae9873b02e2fa1ced9684df3cd43c4c21f6f24e5703d00be20d"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/feishu.py",
+      "sha256": "cdd337e70cb5d4c94cda9604c33287dfbaefef9730fa3cf1d4f7732fc30072cd",
+      "sha256_lf": "38e1a126974949907a85706b24c912da90996ad033b0b68f87e5072d590b8ddd"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/jobs.py",
+      "sha256": "b1127d375da0929f2e7a81b09c193b797029880ebf085572611bf2ba2c81b4a0",
+      "sha256_lf": "dbbb179c91595105783e5e5e663a597a1043c45794b28a7e65443aed83e3fb8a"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/leases.py",
+      "sha256": "fde747b0db360142a7ea850dd97b8ca88817e7203061291998581b4632c31cfb",
+      "sha256_lf": "371e15764f20c1345cb1e2e2eabc489bbfac76e8cf3417bee6bfc04d799be58d"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/migration.py",
+      "sha256": "f09c193cfc3115262894a78518791dce060826bc77d148ce77e2846d7aa1f830",
+      "sha256_lf": "c41ce3e1249694ee010a9b3822cf9a580db3e6cc81d1709c22d2d2d0207b7adc"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/reports.py",
+      "sha256": "5827665b32515cd17aaaf063f75aa6f0be9a555c05f546fa76ee2a68557cd3d3",
+      "sha256_lf": "d595d31303230f8aab87645c16036165ea4df2156f8cd1a2f8fd96abc5517619"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/runtime.py",
+      "sha256": "be747ff8aab0c751b68228c2735b10ede509c52ee291e0d6a8b2f955727e837d",
+      "sha256_lf": "ffda37951aa983116b5a0ee23353574f628049171746dbca186ba29febf6217e"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/runtime_paths.py",
+      "sha256": "b19f3d8ba6e2619444d9fcde522b83a09c15f8ea60b15849c7def37537fb35e4",
+      "sha256_lf": "afdd9fe412b08199042e10dfe8084775fbf25286296671ed6da8eec245cef332"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/security.py",
+      "sha256": "b7cb887f1626cd59942f2c7d6d8a65969453b97630b35b77590aa3dd82dbf7cc",
+      "sha256_lf": "0aaaba25b84e63d6303c10d7dc2583d8ab999b4f75149510e4a7709d5760f552"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/service_main.py",
+      "sha256": "4d38b8426376d96cade545d9d2b40a0e8b4f1cac6c2c7649acf30e05c2ba3e6b",
+      "sha256_lf": "e21f5ccdd9e32fec6050f1b0de317ff36d9de812c2bef7330e6653400962115e"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/single_instance.py",
+      "sha256": "cb13523996d9dcfdfc7ada50fafd9a5a55d6fa714209ff2871c311be46bb6d76",
+      "sha256_lf": "9e20e5c4261e3e4224198e966b8bf5b17e427d9f7c0fc3705c67f66c39c125bb"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/storage.py",
+      "sha256": "5f7b3b5d417249644c1430dd99d8b3419c9495ec1591bc77b44dff43d13f1e49",
+      "sha256_lf": "e385f923a496765d48408c95ed9ca406b5d086d0d2675ef2b509fbc630f994d5"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/strategies.py",
+      "sha256": "9c98bc502ab38e4b1f41d7374c87f1b90bb3062c7ce0a89adf029a56d9da4239",
+      "sha256_lf": "be6c329319d0d6bfbade514b18b9137e3f2166044ac97867617caf159245820f"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a/timeutils.py",
+      "sha256": "d71780e7cfedba277ca5c178dbacf05ce02437619cb09d4f3fd4d5eb18680ef6",
+      "sha256_lf": "0b12380a75de7812bac0a83b82863208a5efbd8a0b1c3aed9fd711165d649b10"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a_frontend/dist/assets/index-BnjA7w5f.js",
+      "sha256": "14d8f582c48ee6bd8f268d9c67fd2a57e5d1f355971131b073765d4e2aea932e",
+      "sha256_lf": "56dc100d47072f10f4e8d7bc6153683497cfb8f77adc0b2a8b7ecf2e3143e6ee"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a_frontend/dist/assets/index-Dcp8qvDX.css",
+      "sha256": "0785113651f9fb8823043e4bf3dd9b28c3f5a3138686e288c78266684917aabc",
+      "sha256_lf": "cbce6c6c0dd5cd0ff1cf48b4e6ec13528df35f5bb2cd3bdae1fb578f5d6c346d"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a_frontend/dist/index.html",
+      "sha256": "890aec68271102d8b93801092c38d4a10f0d0bc67d6f726d7e3664259a3cc34d",
+      "sha256_lf": "67df74e5b035f74fbc7c83156f4e2a200832bb970c16ccd86a394ba7e6ad7c31"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a_frontend/index.html",
+      "sha256": "ce6b7aa7605951215644916a7bec803cd0c8dd62286a8b6038842e487a523040",
+      "sha256_lf": "3c89ab0215106957555cf97bcb0c9b844d5f5c29fc15963205eed6d9c0f0696d"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a_frontend/package-lock.json",
+      "sha256": "7e184e7eccdeb49fd3aec15dfe239586075fd53469c35895550c57ab8c10ecc3",
+      "sha256_lf": "c7d701d4873082b20ca4bad081b5b4628bf20a90cd55c0776323afc756d345a9"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a_frontend/package.json",
+      "sha256": "d4a290662097bae777b9cfc72a5d680d26edef48fd60dc13c014ca50daf80a57",
+      "sha256_lf": "968413416dfe3e4c7dbd5d973f9b0ea05bc8fbc8086baf04049298027040863d"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a_frontend/src/App.tsx",
+      "sha256": "4c5d567089fa3ce8e70c9fc40b563f7108306a3a39cc9b774fc6173ae83dfee9",
+      "sha256_lf": "751a0887ee053248b436692f3a9c9e68dc8d25cfb6032a32e2b6a3f24f63f69f"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a_frontend/src/api.ts",
+      "sha256": "d1c5fc60777767a88d1f421e3c80af630319e9ce7e9711933547369de81eb1d7",
+      "sha256_lf": "97d48f627be9a03f63823bf470be57938b14a039edbaf52522a0b67e1236771c"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a_frontend/src/main.tsx",
+      "sha256": "14d548984324e1a895f983b220728580d3925de0bc6737f3d922e65581f177f7",
+      "sha256_lf": "9e6e1c21bb623fb3d02b4c65a5fb8a03d206b0f75d010e20a5e4163e9575c5c7"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a_frontend/src/styles.css",
+      "sha256": "2db5642870c20bd4957058ab8a9c9d9d940d2dee73c458760881e6bd02d68468",
+      "sha256_lf": "31bb540507154c14c951b0965469d658ee9585fe240f3a9d5da34fb5e61d21c8"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a_frontend/src/types.ts",
+      "sha256": "0b4f440207e8089c6cc726da19e9e10445ea0ce9d4864271c225f4e588f70555",
+      "sha256_lf": "cca393e253a6a6863e2995f1a42779ce0ab255ab933bfa2a78b44e57c79043ca"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a_frontend/tsconfig.app.json",
+      "sha256": "f2406e21a2835c9d3645b8b2ff257ee7ceb2e2373a13dc4802390ec0fa4675bf",
+      "sha256_lf": "a7266d1c85fa6947c70073256d9a73e4c459e97b0b4ef24b5c48dcab498ef4c5"
+    },
+    {
+      "path": "qcsckp-desktop/production_v1a_frontend/tsconfig.json",
+      "sha256": "e900de457fb6d0534d8c47df0ba0ad23a59adc48848637bd42b4bd7a3383e7e8",
+      "sha256_lf": "b6d51d37a8d51b993bd758b7043fa9233eea24d34a4041198ff73c063d9ed66c"
+    },
+    {
+      "path": "qcsckp-desktop/pyproject.toml",
+      "sha256": "e79c3691ee4755a4d643ac2db524cd8835fe59c0d8eb97220fd65fa30c3e0e20",
+      "sha256_lf": "062f6e8a788f08224167f27319ff4624f959b358d2be167f654299a7c43854d1"
+    },
+    {
+      "path": "qcsckp-desktop/release.json",
+      "sha256": "67f1570c820355e15f1eaf2af749827d697a856b2d1558821636f30dd244a7c3",
+      "sha256_lf": "dbc83b872b2d19738869981f65ad914f79c37512db879aa53f8e6f7676448484"
+    },
+    {
+      "path": "qcsckp-desktop/release_configuration.py",
+      "sha256": "31eab1d38d997cb2b457153d969aa111a5817a8c7e76fe29b22654643101d1cc",
+      "sha256_lf": "ae61382bb0a3f356ac30e8dd1d7e92a7b97e4de2cea17b76ec8fcde02b61b41f"
+    },
+    {
+      "path": "qcsckp-desktop/release_identity.py",
+      "sha256": "8eb3b965e0d393117e856e8d957157fcef59872b2f5d3c683decae8094de00ee",
+      "sha256_lf": "416a52f3b55746660e568ae576ba502be0f897cf3d870be34ad8514be8e37c0f"
+    },
+    {
+      "path": "qcsckp-desktop/scripts/publish-qcsckp-update.ps1",
+      "sha256": "4bd4c2e3896143aaadb4b00087f77fa15a3b5f0c4e7fa9ae3126a18291c65d39",
+      "sha256_lf": "0d07d5ad1302535a57295a5c3458e29f9365807eddb361f1bef97b6f719ceefe"
+    },
+    {
+      "path": "qcsckp-desktop/scripts/run_isolated_tests.py",
+      "sha256": "010b9998ebb1181b9c22108cd687f45643ed58cc21ad7996b4934738921c3f7d",
+      "sha256_lf": "e209f824062d641a1290d3980b01d81cee424fc94df9cee9bdb52ab7344aed5a"
+    },
+    {
+      "path": "qcsckp-desktop/scripts/smoke_licensed_release.py",
+      "sha256": "b92a15159073dd30eb2f436abb84c82cf183a9e4998dffd70761f859ac7a1974",
+      "sha256_lf": "6aa51487268a5a688a5890c91dda11467e85cf04541eeb1045f5aea022732786"
+    },
+    {
+      "path": "qcsckp-desktop/scripts/test_network_guard.py",
+      "sha256": "f4303aeab4dc8bb8e60197b46d680bee6e3a07169246a1fdc19b562920645357",
+      "sha256_lf": "50b1702d10850ab50062d279be9e584bd262fd21cc174247365a92120878e2d7"
+    },
+    {
+      "path": "qcsckp-desktop/scripts/verify_windows_runtime_contract.py",
+      "sha256": "317eb647b6238d32b0b1623ecac2ff69ecb95e206c8fb2a17f8ac0e75497da12",
+      "sha256_lf": "62777e3211b1f1a0cfa892bae123b95c88782668425229f7e8cf5f74fd1cb3c8"
+    },
+    {
+      "path": "qcsckp-desktop/server/deploy_services.sh",
+      "sha256": "eb33f7991ba68a4aea959606bf660755ab25b287d0b2381ab24cc0ab26176eb4",
+      "sha256_lf": "eb33f7991ba68a4aea959606bf660755ab25b287d0b2381ab24cc0ab26176eb4"
+    },
+    {
+      "path": "qcsckp-desktop/server/diagnostics_server.py",
+      "sha256": "0b6b5b7539222b313e59723d91ae132a73854be5acdd279a2149c83ec1f77e3f",
+      "sha256_lf": "0b6b5b7539222b313e59723d91ae132a73854be5acdd279a2149c83ec1f77e3f"
+    },
+    {
+      "path": "qcsckp-desktop/server/license-update.conf",
+      "sha256": "b51b052e398b477d3d92fe7746bbf201460fe43f9d2e8ee97427022b7adc3abf",
+      "sha256_lf": "b51b052e398b477d3d92fe7746bbf201460fe43f9d2e8ee97427022b7adc3abf"
+    },
+    {
+      "path": "qcsckp-desktop/server/qcsckp-diagnostics.service",
+      "sha256": "9bebfb36a74a1ca44d112a18fa4c74f8d0d381b593d114fef239463f0fbde5b1",
+      "sha256_lf": "9bebfb36a74a1ca44d112a18fa4c74f8d0d381b593d114fef239463f0fbde5b1"
+    },
+    {
+      "path": "qcsckp-desktop/server/qcsckp-observability.conf",
+      "sha256": "5b1dce71b3f67896ced178078f780dc1acc109db8540c2303c62f3abd2da3ffe",
+      "sha256_lf": "5b1dce71b3f67896ced178078f780dc1acc109db8540c2303c62f3abd2da3ffe"
+    },
+    {
+      "path": "qcsckp-desktop/server/update_server.py",
+      "sha256": "da93476c1e65431af16ba75fe99bac8b8bff619a25daaa88c23b979e4cf32422",
+      "sha256_lf": "da93476c1e65431af16ba75fe99bac8b8bff619a25daaa88c23b979e4cf32422"
+    },
+    {
+      "path": "qcsckp-desktop/services/channel_control.py",
+      "sha256": "cbe56a8969ae892649a95c3487056375eddaa855dab9ab3adc5871e697aa4cb8",
+      "sha256_lf": "159cca695a898e73006c770235027cab88614d96bb1c68ca188d7a49a923470b"
+    },
+    {
+      "path": "qcsckp-desktop/services/channel_ledger.py",
+      "sha256": "fd031dc58ae202ce95c14bf61d46d6ab25f7ca7e287855940f054571fd4f1560",
+      "sha256_lf": "36741c936734f12793a2450e2ba530440830e1b89ca4671df5b54240eb278fd8"
+    },
+    {
+      "path": "qcsckp-desktop/services/channel_update.py",
+      "sha256": "b27b5da361d549682d1880ac988b43075fb1570a8b781045d26bae87242888fe",
+      "sha256_lf": "1875b682d9d0b51503e115b384be0fe26634a1a27d78e96b9723204530275c13"
+    },
+    {
+      "path": "qcsckp-desktop/services/chengfang_material_metrics.py",
+      "sha256": "a7009b9140229b1a1508ff55d5e10f61b0ed8a05b462c2f8e408cbd666c82c0e",
+      "sha256_lf": "9a3a52093064867fba0d11cee183a101ab5ee3a48b3c90eaf9fb07ed70a8e681"
+    },
+    {
+      "path": "qcsckp-desktop/services/cloud_retarget_client.py",
+      "sha256": "bba573cc1b27ff2446d2a2b9cf481c2250d015ad14142698363b8f22e74f8828",
+      "sha256_lf": "bd134d0dab1b9dbc7fce9b03cf57c3921dc6ad729b68a62707c94f83d5aee3b1"
+    },
+    {
+      "path": "qcsckp-desktop/services/collection_lifecycle.py",
+      "sha256": "0aeb848310333536ab638891e8c31d8e490f9b0a4f65339d146808cf1a389e99",
+      "sha256_lf": "706b9eb9307727519c07aeafcd84a9ddaaf5b74ebbc178a81232ccd2efc56128"
+    },
+    {
+      "path": "qcsckp-desktop/services/contact_config.py",
+      "sha256": "7ae2da4b781ac4d71b7e2bbf3495c7824931a9af0cd9d86243ff384210132abb",
+      "sha256_lf": "b93a0f8f757f2d087a88ca3dc13ee12c94a7dcf3f21a49999783fe56e5ab5f00"
+    },
+    {
+      "path": "qcsckp-desktop/services/contact_http.py",
+      "sha256": "b80c7ea6b575a6969f7aa6e3110c0a61f995ebfb39126699053051a0e0430dc7",
+      "sha256_lf": "066391271896391d8ecacd361a074b38f10f72c4849bb19966c732ffebc51086"
+    },
+    {
+      "path": "qcsckp-desktop/services/control_metric_collection.py",
+      "sha256": "9ea6b0e8f0e8d6f21de0d62662b371879e66e250d68db2d7dfff0cd7b424e055",
+      "sha256_lf": "45cfebb46379cca6d5d98b8456be8e7af52e1f72c4ffbf9c220968fc4ed0493a"
+    },
+    {
+      "path": "qcsckp-desktop/services/control_panel_config.py",
+      "sha256": "ee41209630dfa8f8c650b8f1c0479c7a3967c1a7c25c6aa06cada1768d12526f",
+      "sha256_lf": "1281ca7b676b39de72431f89ecdf9d19a3c8214f9de6c9afade457e07b33dee3"
+    },
+    {
+      "path": "qcsckp-desktop/services/control_task_cycle.py",
+      "sha256": "90df0f4f19441ebed1111559a642edafc0e46d853d24fcf3189ff87871b59a43",
+      "sha256_lf": "6ebddfb01e2fe6bf85afef0b386f30d9e4dbb81812fcf75d4ce0dca85c065a6f"
+    },
+    {
+      "path": "qcsckp-desktop/services/device_identity.py",
+      "sha256": "caa6b9966926f7f46c05706b66e2d6daa6abca4169de974cd4de9f236e2df47f",
+      "sha256_lf": "d0b898ad5dbc88f49c5748014d1bfaa52df4aedbbe2a1eabc25fbe7466f4d3bc"
+    },
+    {
+      "path": "qcsckp-desktop/services/diagnostics.py",
+      "sha256": "e18436159d21bb361d43515c143d81ee09dfbb3e800a92ce87b0527611d66e65",
+      "sha256_lf": "f1e0ac1b8f00a787c1f9797d6e817e86dfaf576415ebf21c4f163570b15d149e"
+    },
+    {
+      "path": "qcsckp-desktop/services/dingtalk_webhook_push.py",
+      "sha256": "ba56b7aeffd253ff80c972521d8b6f0b0e447293fad7df48de11b7863417c349",
+      "sha256_lf": "20ce4e869aea2a78caf9f6533130bc28aba4b0ab23d60850567f74a656d61596"
+    },
+    {
+      "path": "qcsckp-desktop/services/failure_report.py",
+      "sha256": "d26471577a6f004b9d8d76858aba8190a934a882526bf7adef6bf200c77a7590",
+      "sha256_lf": "177d42032315461bdecea73745390f79a5450ddcf455092ed6aacdb7abbab2be"
+    },
+    {
+      "path": "qcsckp-desktop/services/failure_report_v5.py",
+      "sha256": "fc8c7dae29dde3e99e446cf7212f3353e86c3c2b905ffbe67c2ff2ccc41fe94d",
+      "sha256_lf": "fc8c7dae29dde3e99e446cf7212f3353e86c3c2b905ffbe67c2ff2ccc41fe94d"
+    },
+    {
+      "path": "qcsckp-desktop/services/feishu_bitable/__init__.py",
+      "sha256": "8a0f3bd5aaebf351d67f9d2bcf17d55154d9ffb5ee3065eb95ac4c6d6fb5c9d9",
+      "sha256_lf": "09847cf2b7da38da42960332356a1553be6946f29e00470d731d772557708a0c"
+    },
+    {
+      "path": "qcsckp-desktop/services/feishu_bitable/base_table.py",
+      "sha256": "b68385c82d7f976805231efbaa0d65fa5d6aefd527cb57c1c0360910aa2c64d5",
+      "sha256_lf": "f0110740b59181c71188d77cfb0fb6e8085c1722b93f964670926f2e6515a473"
+    },
+    {
+      "path": "qcsckp-desktop/services/feishu_bitable/bitable_types.py",
+      "sha256": "d42ef4fd929f7d9b55fc5720cda6a9eaa5e4f559b50822290d6c0a8a545b395a",
+      "sha256_lf": "ec3674069bf222cdbe6c1d42e9af9504eb2e790f932523680dbce5fbc7750815"
+    },
+    {
+      "path": "qcsckp-desktop/services/feishu_bitable/facade.py",
+      "sha256": "c0cb5aa6c0f30b5a90c9d242a75790d4210f41ffabe6463e355848d34a01069e",
+      "sha256_lf": "e8c4849eeaac205da8a31ab5d8cb796fd98c864d4116b241ef1e51b72bf111f9"
+    },
+    {
+      "path": "qcsckp-desktop/services/feishu_bitable/pmc_row_mapping.py",
+      "sha256": "0f3e70ba30e1f2b2482f5929fdadb48596587f116d7876645e11f9953ec757e6",
+      "sha256_lf": "cb05de5ba52283b532f0377efacbe802e7fffc6fcdf9d3510d6c6d5c66c229f6"
+    },
+    {
+      "path": "qcsckp-desktop/services/feishu_webhook_push.py",
+      "sha256": "d8e4922cf70e35644960db020540c841a0990238013d9c11fc069d7c1ac3370f",
+      "sha256_lf": "2e09888398d20b49edc19943c6be37700402919b000ddd0723781cef1db593e6"
+    },
+    {
+      "path": "qcsckp-desktop/services/fetcher.py",
+      "sha256": "c7c3af058542fd614b01f09f4ef6a50a83bc264fa2652cb8f07bb1c56212642a",
+      "sha256_lf": "2994b0391d84d55d48e718bfbfef1a5f14dd41af068649c0e992cfc170c8fc00"
+    },
+    {
+      "path": "qcsckp-desktop/services/license_client.py",
+      "sha256": "c1dbecac0b89e07e8881c20a0c767ad2ce9c3e1a480050037c1032871ea0eaac",
+      "sha256_lf": "48f35b888c3d4256c7794237a7b4b75c6f177dd8fb6887269467bc6964741e23"
+    },
+    {
+      "path": "qcsckp-desktop/services/license_manager.py",
+      "sha256": "16c22f490d67bf944e8d207e34008398b210fb5d2088828dc85fa3caa1c87136",
+      "sha256_lf": "a6152d415fcd402580c15fbdf91bcfd96d49b0011f9a1ee76b94dc99a3648664"
+    },
+    {
+      "path": "qcsckp-desktop/services/license_storage.py",
+      "sha256": "4f1e5602ba0a6c0585b82f0bd5e3135dba5fc48682c02d84021d21e622f76a96",
+      "sha256_lf": "415fdcfe587accd793804d665e45118fe8bb248c88ad1d0d44438843521a2d59"
+    },
+    {
+      "path": "qcsckp-desktop/services/license_transport.py",
+      "sha256": "d95295f26726a4bc58f584444f32feda9b70592a5aa02e861cdd3071880decb8",
+      "sha256_lf": "ed69590af51366bb27e5d3a68d21b12f13bea486e7170492e303fb4417d02b91"
+    },
+    {
+      "path": "qcsckp-desktop/services/local_feishu_bridge.py",
+      "sha256": "60c094c465c3340d3e04a1253e4b2d5a983335d7fdd2ca29e8842227b76d9173",
+      "sha256_lf": "6f6643779d3dbf68f9b7f7b46effa1a43a989df6a0b331dcb199d30aa7cd40b8"
+    },
+    {
+      "path": "qcsckp-desktop/services/local_test_guard.py",
+      "sha256": "47f6c3aa6746599c78b694a299db264264dd02931075f3b7f369c3ae43e4e6e2",
+      "sha256_lf": "f46c0af09c34240a85ddcb17d6ac5fba9b275f81ea98c5963460e05f2a5e98ee"
+    },
+    {
+      "path": "qcsckp-desktop/services/material_backfill.py",
+      "sha256": "dc6052249d70d28da6f6f9a52307a4468f677d3810dde2e1afd6ec0549756ee1",
+      "sha256_lf": "b87205d9758c4555bc28f214b819aa7b06963ad9f4de2a4498d61d7250addc62"
+    },
+    {
+      "path": "qcsckp-desktop/services/material_metric_contract.py",
+      "sha256": "e37292a1abb54cc2dde152efcb998cd6c32fb32b2f42e3c91d8f6d35e8a43c1d",
+      "sha256_lf": "b3d982f6813e49cc4f54796b77aa81340a4a2d79665d24be9e30638ffcd418d3"
+    },
+    {
+      "path": "qcsckp-desktop/services/official_api_authorization.py",
+      "sha256": "2cbb02f1d0466053be1997de1ed0f087fc7e1933b3f13d08bad900a6e478fd25",
+      "sha256_lf": "9dbec19853a6553814158dbcea7d3ba01fe378c4aaf0150e764a3233f6d9d1c4"
+    },
+    {
+      "path": "qcsckp-desktop/services/official_api_catalog.py",
+      "sha256": "1bac19b7a23d716df85e6aef3a1edf3de01a59f7a1fb1d3993ba90e8d8bb92b9",
+      "sha256_lf": "d1572fcb1063ff3c9f08cd6212a7bb1630735dc4416a83926408896a565bf6ac"
+    },
+    {
+      "path": "qcsckp-desktop/services/official_api_collection.py",
+      "sha256": "e9dd21ec9fdc2b06b0a399d5cbd031996bf8e47a3f229e4eb8b2b32a961b4001",
+      "sha256_lf": "10c91e1c16b80e48373912d23f750fbff5d0872fc16e7fa075a9c8c63844da7f"
+    },
+    {
+      "path": "qcsckp-desktop/services/official_api_controller.py",
+      "sha256": "57a40f85fcdcab406986ca343b22061542513d1b66397a06c54582355d45de13",
+      "sha256_lf": "6672962fa3c8516a8e8e9dab433b0b99c4f5545cfc07d6f8fdcd27cadc51f457"
+    },
+    {
+      "path": "qcsckp-desktop/services/official_api_execution.py",
+      "sha256": "a8e2ad42d235f9260972733a0ce9552b36325d1f4f1042b3bd9e69c53cf4cebc",
+      "sha256_lf": "edb2a9c8f29ad0541ea4d391d98a2ab56adbf1c0c01c0cba2fc73cf15b04eac9"
+    },
+    {
+      "path": "qcsckp-desktop/services/official_api_operation_logs.py",
+      "sha256": "08884ea8fd99fbc2446416013fd0d63e954c73a8ecad36be67da7e1a4de48288",
+      "sha256_lf": "0411de9e3726fa247068201b9f7b428d404a5913e697bce59bbc6ee980c30f70"
+    },
+    {
+      "path": "qcsckp-desktop/services/official_api_reconciliation.py",
+      "sha256": "0221983b8c3c879b018c28daeb5335655e6d7f6296c9857a72125ed31af55b02",
+      "sha256_lf": "97283700a80cfab094ef46ce846fb254b939fe2376763285e1d79393118d6b5a"
+    },
+    {
+      "path": "qcsckp-desktop/services/operation_daily_report.py",
+      "sha256": "9d4abc9e448a13919d960f1234e8a4140a8857b970aeeeeb733b52caceed68ae",
+      "sha256_lf": "293f8bfdaba14e60da6ad086f6897d07f3a27e61f7f5d2c3ec05ff1ae59cd04e"
+    },
+    {
+      "path": "qcsckp-desktop/services/operation_diagnostics.py",
+      "sha256": "ce3de087a534e6cba211e6bdd63e23eeb033d6c74c772fb31e8d33eda425c322",
+      "sha256_lf": "57215d8f1bc4529170a78796453cc84a51cffa946e20f81b69e07372bdc43233"
+    },
+    {
+      "path": "qcsckp-desktop/services/operation_log_monitor.py",
+      "sha256": "a3f8094ca6b77de87b2417d926194ddc48f1fd9ccf39ccaedacd148d869f4596",
+      "sha256_lf": "73be3684c1862de3d3bb543a6f50338ae4e732ceb95a9114ceb53fad32f6822e"
+    },
+    {
+      "path": "qcsckp-desktop/services/plan_system.py",
+      "sha256": "cccc44257b5c8eb16c624c8cfa610c73b1cce2fe614649878c3a9d2c939cfe20",
+      "sha256_lf": "94add845806709a62ef368ae73cc58eda7f848501f704febe956cd8b11d60aea"
+    },
+    {
+      "path": "qcsckp-desktop/services/product_rule_engine.py",
+      "sha256": "0f7bcb49b05627ff0ac28c6d391f08170fcc20d466656fc76b36f7a45c4c2a3a",
+      "sha256_lf": "724270af69875ff5fa3a72673fb9634186a5f0bed009affe9bd88860ca3cb21c"
+    },
+    {
+      "path": "qcsckp-desktop/services/product_scene_adapter.py",
+      "sha256": "9a2692ab28209958c0254c3bb5885092cc749bd1f8136f81ef91656d2731aca0",
+      "sha256_lf": "fe1ad9571fa074e4d2fd9cfcf5e3bccd381b0f100983ac2895078fc7ab830282"
+    },
+    {
+      "path": "qcsckp-desktop/services/promotion_browser_lock.py",
+      "sha256": "f03b18cbd86009baa7233dabcf545e96ff94153abd30f2c83d6b9bf340016776",
+      "sha256_lf": "a510d877faca326180d689d160c861733565b76753946fed31f84e8d84ccf453"
+    },
+    {
+      "path": "qcsckp-desktop/services/promotion_capability.py",
+      "sha256": "8644cb517d6dc407d488f4b576165065c3f2c351b43d865166a324be70627dfa",
+      "sha256_lf": "df8895ebaa5dac63fb5807c7bb0cb915a73749b5523277378447ed4b5f3971d0"
+    },
+    {
+      "path": "qcsckp-desktop/services/promotion_readonly_probe.py",
+      "sha256": "659521229f07f8cb4998b1e529a358d6d22ca5581fc6ca58cf4b957468f0606c",
+      "sha256_lf": "fc54a53cab1a6f15e118268503cff863a637b60edcd2c2087a33b306f498710b"
+    },
+    {
+      "path": "qcsckp-desktop/services/qianchuan_accounts.py",
+      "sha256": "00e943e37b44904b30e08043cd473c1414bb8ec5eafcaf226958705cbad0abc2",
+      "sha256_lf": "c2ca2628ec4703d8a0b86210c993abd3c73f54f66dae2a842be73dbdc760ca24"
+    },
+    {
+      "path": "qcsckp-desktop/services/qianchuan_catalog.py",
+      "sha256": "63b4ddd47fa195992993aa3a6a3d415ae01b8818a8542520a0aa90d2dae7ab13",
+      "sha256_lf": "7d9a2b7d0e183acac5664c8bfb03a78747324b90efcec8cbecbd0fdb4b47cc0b"
+    },
+    {
+      "path": "qcsckp-desktop/services/qianchuan_open_api/__init__.py",
+      "sha256": "9e2583b8a2906587cf23be243e0399edb706a232760ed8f4f8cb6a008e4e4b09",
+      "sha256_lf": "9694958ef8c00f5c81a6364d988e3693e62f7acd809fb661b5832214789bbf72"
+    },
+    {
+      "path": "qcsckp-desktop/services/qianchuan_open_api/audit.py",
+      "sha256": "9c4513faa28d20ba158cc5816fd0fd4d33e7a84c0dcb8e0ac3e4fa2b5785f25c",
+      "sha256_lf": "b2b52d552f0aecd19913a5abeb89c7028533a858085ab34ef66e1e0fc9335aed"
+    },
+    {
+      "path": "qcsckp-desktop/services/qianchuan_open_api/client.py",
+      "sha256": "a8416c3b3a850c876e60ca5773f30506c6616099198d1cb85a7442076dc7832e",
+      "sha256_lf": "32ada34b723da39cb2213d134bddc6ee142c781a3a03b67e4a8d39f97917cf0b"
+    },
+    {
+      "path": "qcsckp-desktop/services/qianchuan_open_api/collection_context.py",
+      "sha256": "a6f40110d81c41d030a18133923c46ea9a1364327390db66f2cb1262a0b4cc18",
+      "sha256_lf": "586fa5719927d153a536feb3ea73773c5aa92ffc9341160b2eb3533f1e6b32a1"
+    },
+    {
+      "path": "qcsckp-desktop/services/qianchuan_open_api/configuration.py",
+      "sha256": "3cf05eb080819446acde72803179f44b6ef54923727d28dc4a9c57b3d1ee98ee",
+      "sha256_lf": "2228813b0eb28b258433b1493de2ccb03676584cb277786448c49427fab95f39"
+    },
+    {
+      "path": "qcsckp-desktop/services/qianchuan_open_api/errors.py",
+      "sha256": "488634d315f9c8177038849ab591225703b4c32d1cf50e151ab811926a299d95",
+      "sha256_lf": "ad6da1d2724d4543949ec05f6b5f2a48d7743014f4282fa8321391f55a87a85b"
+    },
+    {
+      "path": "qcsckp-desktop/services/qianchuan_open_api/managed_workers.py",
+      "sha256": "bd3a8638c98669af5f29e4bd31c2d070f79b168c0caf33ca235898bb149ac697",
+      "sha256_lf": "238859cc2ec2e3d43969566f268f969c9ae996a14d46344c78aafc65ad6c10ca"
+    },
+    {
+      "path": "qcsckp-desktop/services/qianchuan_open_api/normalizers.py",
+      "sha256": "2df6788b00360d29cc424d46cd3451be9179538f04bd28a0238f8b4b518257a4",
+      "sha256_lf": "e8e64a4c9b43ee929b9bfccc503b6bc1f7ea6761c444a8cdc84cae487f727324"
+    },
+    {
+      "path": "qcsckp-desktop/services/qianchuan_open_api/pagination.py",
+      "sha256": "d11c609d5bf409edfe404047157b09346464cf47c5f496fcfd19aa8d0e0b5e7d",
+      "sha256_lf": "4ad6424384882ad64a3d4e726faed4e83f0889b3ae8da4982dbbb9c37926be4c"
+    },
+    {
+      "path": "qcsckp-desktop/services/qianchuan_open_api/pagination_evidence.py",
+      "sha256": "24427a719ee1de1586083ecf4896329cb7c65cdad2152f3933652df4bc4972e3",
+      "sha256_lf": "e2676b2a1b090c70d5b01955c83111f2fb308cee2a25ad8e861547d33a85764c"
+    },
+    {
+      "path": "qcsckp-desktop/services/qianchuan_open_api/runtime.py",
+      "sha256": "04292430ca6d8e1fd25d90e51fe553b2affab738d37ace3180fb4e835ab5ceef",
+      "sha256_lf": "014d9d4ac3240a67cce0392509e995662801bc96ddbb763e6b532025ae93c79c"
+    },
+    {
+      "path": "qcsckp-desktop/services/qianchuan_open_api/runtime_settings.py",
+      "sha256": "d2cb06c963839f990e20a59288ddec499537314a4c9f60bda7103ac7df9899f2",
+      "sha256_lf": "f40ceaa6e5c5e045499ca578d03238c6255d94a0d10196cc36de7911e4ad5ea4"
+    },
+    {
+      "path": "qcsckp-desktop/services/qianchuan_open_api/service.py",
+      "sha256": "3a2f268f72411dca43f733bf8315bcb63ddec1afbec42bf198dc21e7c962367f",
+      "sha256_lf": "7bcca5b41552bb1ad03a634e764c0e0051401e24c9a1bab701db036a3af12490"
+    },
+    {
+      "path": "qcsckp-desktop/services/qianchuan_open_api/token_provider.py",
+      "sha256": "1d1de4da52a8ec20587eee84b97fbf9079ed41ab91ae6b81432a366dd64fa65b",
+      "sha256_lf": "f190a4b1f6261af536b485652f0347615a24502161b5d20ebc08c1935b8bc074"
+    },
+    {
+      "path": "qcsckp-desktop/services/qianchuan_session.py",
+      "sha256": "a401bbd2029f62b229a57115543070410b88b7ab2f04de967a7a2c361b7efeff",
+      "sha256_lf": "93eb3ecc39475616ff636d4ebb2546cce0fcbe781b735343f37b31269077281e"
+    },
+    {
+      "path": "qcsckp-desktop/services/rc23_rollback.py",
+      "sha256": "a333dfc8272ac27b8c4de9c788ab8a2ba1e26a508f3c301fd8d87ecd3b8df72c",
+      "sha256_lf": "7f79e822bb40d632ea3d352534f0bca3912a37b647b19f636bd1e19872050d8f"
+    },
+    {
+      "path": "qcsckp-desktop/services/regulation_rule_runner.py",
+      "sha256": "c15b5b8b850ee3acfcdc91e356f76f2dd12ac70464f2f7d3fea5c2902b8b5cd8",
+      "sha256_lf": "d8b9c53eb65563be31a754b4918d55a6236ea1612dd09e11fd45d7cd36a75810"
+    },
+    {
+      "path": "qcsckp-desktop/services/regulation_service.py",
+      "sha256": "26df3b1b64a4bda86edf5b985cb2be688c2aac4b7818cc26631095071bf20a39",
+      "sha256_lf": "4e9e0585c6dc6861df6c59363bf00ac168228ceb6dce81f1f1d02beb9d628378"
+    },
+    {
+      "path": "qcsckp-desktop/services/retarget_budget_increase.py",
+      "sha256": "ef45f15c42d4013e9da20f539064c63316460fc138d942a8b9b695a591ab31d9",
+      "sha256_lf": "851eb7d4affb249c59d0216a554d4d436ad9f78d2da191ac1b0a12246195bd22"
+    },
+    {
+      "path": "qcsckp-desktop/services/retarget_diagnostics.py",
+      "sha256": "34c2b1e4ab49d5e5b141530a50f9082bcb9d4b7056049b296c9179214c820094",
+      "sha256_lf": "34c2b1e4ab49d5e5b141530a50f9082bcb9d4b7056049b296c9179214c820094"
+    },
+    {
+      "path": "qcsckp-desktop/services/retarget_task_worker.py",
+      "sha256": "b06353d2f815f91a4c5f695267ec53759668f9a2518b1c4711823b20ff2dc154",
+      "sha256_lf": "2ba48ee4eefd52bdc334ecd36b6a59011237dfc915be075239b2377be411c9d5"
+    },
+    {
+      "path": "qcsckp-desktop/services/retarget_verification_contract.py",
+      "sha256": "0a18d762c73c6d07624e946ab030026ed9c289aa9b6ae259f6ca3b612e81968c",
+      "sha256_lf": "ad62d96b7e53c7b32152802dc7544788ce7ebd0db74292a830ec250f1a547aac"
+    },
+    {
+      "path": "qcsckp-desktop/services/retargeting_rule_runner.py",
+      "sha256": "f41071428585784912278cc34590955b0eb131b8f157e35983f0136c03593cdb",
+      "sha256_lf": "b722c1677230d417566509613c1e16b9cfb366d518af95fcf2377e9c46f0e065"
+    },
+    {
+      "path": "qcsckp-desktop/services/retargeting_service.py",
+      "sha256": "a7251c338ab86cfe968076bba5e525f611dd9835ad30d0f695b35db6a48f24a7",
+      "sha256_lf": "87ed07cfaec8952040fb22509e2348ce67e4001b48c9a9baf982cc67a0dcbf43"
+    },
+    {
+      "path": "qcsckp-desktop/services/rule_wakeup.py",
+      "sha256": "700128c05c30879d3c7935d0cc26defc5ccc33ba579a141e74bc65f3977c5f5b",
+      "sha256_lf": "ed1916e915075572efddbe4c7e98bf9c716ae3158cf9b142262e4bdf235f3206"
+    },
+    {
+      "path": "qcsckp-desktop/services/run_services.py",
+      "sha256": "43e0cd63c263fc9c3c121b3d137822d02c6eca92927d818abf6f15393f33d49e",
+      "sha256_lf": "8699786a055f3a459217a76c3cf2ea9d9f480b3f6fb8edfcbff0809a9db8e106"
+    },
+    {
+      "path": "qcsckp-desktop/services/runtime_supervisor.py",
+      "sha256": "f295d17f5b54d6baccdcac32dd7c5d4954caa19a1ad9cb05aa0cfee38f62d3ea",
+      "sha256_lf": "819e21bffa49ac3d24e3dfdc2f6a24b58ca81cf7be287bf376842e3262967b22"
+    },
+    {
+      "path": "qcsckp-desktop/services/update_manifest.py",
+      "sha256": "95cfeee203ad8e76f3b4e3c93cb2da454fbe20ea22c1d66c9f80ad16f366f944",
+      "sha256_lf": "f05fe51fddf04f835f09a6eeacfda283e7469014982d7a09b05c68bcca6b567e"
+    },
+    {
+      "path": "qcsckp-desktop/services/update_service_mac.py",
+      "sha256": "17fd11c4b25664b5edb07468be14c6641c4e038a6740364d5097e50abae9bfc5",
+      "sha256_lf": "066b6dd5b21702353cde54c23db35243809998be5fa884461cbf75a5856199c0"
+    },
+    {
+      "path": "qcsckp-desktop/services/update_service_win.py",
+      "sha256": "b277185e70acdd63bd4b71710b7edcf4a91c2e492b8f0efca27eec596f4af526",
+      "sha256_lf": "732b7414abe5cb20ab7b6d0d7a0914b35e201c181b2ef0dfaaf1c69e3ce2b1d7"
+    },
+    {
+      "path": "qcsckp-desktop/services/webhook_push_runtime.py",
+      "sha256": "abbd1895913a70883cf3498b5c307a78c24e54e7472c485defebc7cb3030bb21",
+      "sha256_lf": "67f4c3ad9f29ca18678f4dcebc0d60905e5f032edbc4452a419ffd1a7abeb84f"
+    },
+    {
+      "path": "qcsckp-desktop/services/windows_autostart.py",
+      "sha256": "c15f492e32456bf0b74db041f2611d3f9703342fe7c9da888cb0b80d8e8cf559",
+      "sha256_lf": "7f6c28cddd684b8e0df0675b4221ea1fddac976e99dba245b3ba21e65fe24f6a"
+    },
+    {
+      "path": "qcsckp-desktop/startup_bootstrap.py",
+      "sha256": "61bdc8f394df798b2d27566ce75a9d10d87b49c72328e477b4f148e249e9d85f",
+      "sha256_lf": "1a8e14473e6f2b0fb37995fe177f42408e1a019738255ae8378b21a9c9e01ab5"
+    },
+    {
+      "path": "qcsckp-desktop/static/components/rule_retargeting_runs.html",
+      "sha256": "dfc7841674a78e18d3bf8d4ceb2ac934344af2a949006be4090e55452ff3e79c",
+      "sha256_lf": "cc65fd55440c7dacfdf7d0f53fd29e4e7873501d1fd82e79bfb02e2ab545cf0c"
+    },
+    {
+      "path": "qcsckp-desktop/static/control.html",
+      "sha256": "bde6d30e768c90a31384fda4f01a99672f8b6b75865929acb45846b0c456981b",
+      "sha256_lf": "01dc7ca43843552e64e4649ae709c21ce62273f2a1fb64962a8529c02b655d29"
+    },
+    {
+      "path": "qcsckp-desktop/static/css/rule_retargeting_runs_modals.css",
+      "sha256": "07827cfdac80577d351cf6f0388b6233405fdbb095e0d033ffe21ff7b17afeaf",
+      "sha256_lf": "165197e0ce0c103e50f191e96971fdc14fdd90c1c94612e537734d726903ee3e"
+    },
+    {
+      "path": "qcsckp-desktop/static/dashboard.html",
+      "sha256": "87c068397a14e32d1f1085b8a245273c63ecad38ca8252922bdcac78486a186a",
+      "sha256_lf": "cd050c9562af305ab6d5f8dae9010be595fdbcc7fe924e723295df376a0fff17"
+    },
+    {
+      "path": "qcsckp-desktop/static/feishu_binding.html",
+      "sha256": "69175b1ac8ea71b9a3e3f0ac111a10b79c845b3a222992748a45f420de712472",
+      "sha256_lf": "99c6f33fd06f372bd59abb5571d613c35cac9ad9ef80733b3f0f139e4088a13a"
+    },
+    {
+      "path": "qcsckp-desktop/static/images/contact-author-fallback.svg",
+      "sha256": "823d965bb65d79f2302eb5b8a5f884f99703a5af35516b4079077bcf5ed99ffa",
+      "sha256_lf": "1cbb04ecf399b6e6abf33c8fcd32a46f08c48dff377f718aa16280c4aa722ffc"
+    },
+    {
+      "path": "qcsckp-desktop/static/index.html",
+      "sha256": "a9cc147206f996b4354ef4244cd857a36c0307cfce47f27328e7df571bba901d",
+      "sha256_lf": "f24487302fe5f1f860181151c2e3290f8eb81baf2327a29f70009bb8bfdc27be"
+    },
+    {
+      "path": "qcsckp-desktop/static/js/echarts.min.js",
+      "sha256": "4354309d8cd76effcf2bfa89d361604606665952ee3c7c61b000309924d06546",
+      "sha256_lf": "110c1f6fca633cf9471a7ca3c5d462e4cb2bf41afd1da1f21cfe67dcce726233"
+    },
+    {
+      "path": "qcsckp-desktop/static/js/imm_retargeting_field_validate.js",
+      "sha256": "e737ca509a9a3fcc1b3f3ab707395be2e866fd1a8132912fe81341192b23e2de",
+      "sha256_lf": "647c7ecdad15411bdf5e83a5ee4be713ebea419be35183c80790ea0b628f388e"
+    },
+    {
+      "path": "qcsckp-desktop/static/js/lucide.js",
+      "sha256": "fef5cf6ff4886600f78634c4b2b38dfd70ec2771d8f19e14d46a8edcc961b158",
+      "sha256_lf": "3228c41acf38d05d43d0a373516f59032f1b77cd8e8c58c34fff9676504428f2"
+    },
+    {
+      "path": "qcsckp-desktop/static/js/messagebox.js",
+      "sha256": "d4b83dd15cfb99887deb34a1898b089f5fded44fb93b2a999051a20f758ea528",
+      "sha256_lf": "1c36a22b782bfc7ce464fc3753e416449b83b6498b7d7b0b21eca50b0f799bce"
+    },
+    {
+      "path": "qcsckp-desktop/static/js/rule_regulation_page.js",
+      "sha256": "1760e1742dd2c558f121adfcfe30088d925f0794529afbb060c963c477203df0",
+      "sha256_lf": "8c2f9eca513ec07445c34dd59a8216458191fe38e8bb799c9116027176f056b0"
+    },
+    {
+      "path": "qcsckp-desktop/static/js/rule_regulation_runs_tab.js",
+      "sha256": "2f520440320284164e1c177ee9bd9ed5afa6bcfa666a627819e4fcf8cc8309c7",
+      "sha256_lf": "2184bd854495926be69932974fd6a28f9b1c1b961affdc5916f24b6263415f9a"
+    },
+    {
+      "path": "qcsckp-desktop/static/js/tailwindcss.js",
+      "sha256": "15d7d747c0e2d4e4f8251d9cb1d6bc5934e20419df2861997b64ca962ab64766",
+      "sha256_lf": "20fda8a2158e83d6f78aa7e614ec1f7183ac10423cf956ded061cbe664c87bef"
+    },
+    {
+      "path": "qcsckp-desktop/static/license.html",
+      "sha256": "b17f2519ab46b4adc36820415c4eb499894882b6ca814ab1990cc703ab7918b7",
+      "sha256_lf": "c42b0f74491c1dd454b1a56d2ab9edb215ca4e5012ef8cb0cba6a31d84394799"
+    },
+    {
+      "path": "qcsckp-desktop/static/license_management.html",
+      "sha256": "96f0c1979fc3c926d62dbdee087338716fcc8a7c2e495e6ced4b52f971e160ae",
+      "sha256_lf": "dd2ec271eda63d08f6d8a0d295b2de71cc28801d344ee359892ca2b96d3dbc2b"
+    },
+    {
+      "path": "qcsckp-desktop/static/logo.ico",
+      "sha256": "4b756025e1cf8fabdae1929bf277f6d86d2c2d0e3378c4a19b47aa391f274f67",
+      "sha256_lf": "4b756025e1cf8fabdae1929bf277f6d86d2c2d0e3378c4a19b47aa391f274f67"
+    },
+    {
+      "path": "qcsckp-desktop/static/operation_events.html",
+      "sha256": "c970d12b410af8be3335efce17f49ab51bf3bebc55d94d555f0de466bdf08cfa",
+      "sha256_lf": "11505a24b7cc858040a27d0d72e537a20d6181899af1949a5bbf8c8fb201c9fb"
+    },
+    {
+      "path": "qcsckp-desktop/static/promotion_targets.html",
+      "sha256": "dd04861a01da440fea343643d0e24ed50fce8fec46b6ccaa51f1a0b9c4069b3c",
+      "sha256_lf": "31eccda93d2849945c5d7ca4f6eec259b6eb5a9e14ea658a0a6537767cc88cdc"
+    },
+    {
+      "path": "qcsckp-desktop/static/qianchuan_accounts.html",
+      "sha256": "90271b2b35f6389a13a08233dd27591dd9cc0c9ab457c9bdac873affafb0f2c0",
+      "sha256_lf": "661015200490f5ac25e277f4c716e08b93dec9af3b62d10dbf9ac0e2efba1fbf"
+    },
+    {
+      "path": "qcsckp-desktop/static/rule_regulation.html",
+      "sha256": "08b170bb6d3cf38a7d41c3dcc469bad82b0df7f426128352f01e8673a6904961",
+      "sha256_lf": "1c521872c4511b6a3667bb888462ca4531e4571846a5cf87352cad41f371c415"
+    },
+    {
+      "path": "qcsckp-desktop/static/rule_retargeting.html",
+      "sha256": "faec0db506b3ce8072a6ef563c3b94cb1d44a5b8239244b6868cf03f6e7b5c22",
+      "sha256_lf": "0f58830d0edef899246c0629673fa9383574dad7a80da1ce0892db79c67dfb94"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_catalog_scheduler_interval.py",
+      "sha256": "28a1180b4ffc4fe1ef7c2ad28616bac9d42a5e75482cd2b07aa659827d8fb1a2",
+      "sha256_lf": "ac98c7caf7b24cad7b5ec921ee96f88512dc24df12051880261a2728e80dafda"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_chengfang_collection_integration.py",
+      "sha256": "4e4f5e8ead1ed57a2a74893d97b78de22ce075952b88e6a78c004b3d3405d80f",
+      "sha256_lf": "3467096b78ae11de83b8df23f91f195d7d3ce4b751c74940e4d9ccc407452b4f"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_chengfang_material_metrics.py",
+      "sha256": "2a6d927168e9f0af0c6321e1affb2a4eacf1dedaf43a0dbe09e3e7642f6096f1",
+      "sha256_lf": "e102a59a1ddad0c7fddd9e214087abb732d205754c2b2ae316680c589d231509"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_chengfang_metric_evidence.py",
+      "sha256": "a5e7c5de1b416ec01fcd423d3485f049037bcddba558c299c23ecfdf17db7b71",
+      "sha256_lf": "2fec60a0062cdbc3acdf839224534e1fde212b50d0b75bc60b5366bf632fb31e"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_chengfang_submission_scope.py",
+      "sha256": "44545cc015b98e244cf2dae1ba611ee1f6640f8ab39dc4d2ef2fdd10199ba119",
+      "sha256_lf": "a50181207fb962afb2a57280dba73e205421b38d8161b30030469824beadd807"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_chrome_runtime.py",
+      "sha256": "1283d300de987226e3450c6f04bb2d9869fac537280367bf656e79a8d4d30c96",
+      "sha256_lf": "33d3eadd3ce903879955693639676cf2b7300a3f102070f4e2506115a49e1823"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_confirmed_retarget.py",
+      "sha256": "56362c213e444bcc3c3cd0ac6deb6073e4fa783a2ce60ffb3a1869a0705efec6",
+      "sha256_lf": "4b377d42436f9d18338b3112d00905f15c7b670cac949d1ad7130e3cb5a9fa95"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_contact_author.py",
+      "sha256": "6651ffbe9ab61f3bd66c91f41f588b7d6a8683182dcf3059acf26acfc42efdff",
+      "sha256_lf": "fcea9cd4fa5e1849ab3b9c950fbb1e534c75f4d140a666fb3768b7e32f88a0db"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_dashboard_filter_bootstrap.py",
+      "sha256": "a509e18498964dbae4ea588052236b274428e078552ea49b7b30625940a7e463",
+      "sha256_lf": "ee2bfa7bdf0f1735c058bb1bd9a391cd41210471f7124e13433488fa29b572f6"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_dashboard_null_metrics.py",
+      "sha256": "e7bedba9b7cb04762346027fbc483ff27623cca3b36964d088f4cf4ab701418a",
+      "sha256_lf": "e85ca9349408766713b9c8eed3a8245f173cf15b660ad632970c90c9b1065b8e"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_dashboard_optimization.py",
+      "sha256": "938c4b11a716d343d89a11ebb6512c253ed920d6c1fbd78856ad47664eb1da60",
+      "sha256_lf": "57cd412243a276687e70d03e54c7eea9378ee5961289ffcc77ba3a07854e038c"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_device_identity.py",
+      "sha256": "ddf2728cb20ec2541c80da3f41c0485a38ce9b3ca73bfc68164b1db81823e8b5",
+      "sha256_lf": "4a5654fe80962d9b29c79dc43e15ea4d9c57ef90ae022724ffe2f1c3db25852d"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_execution_recovery.py",
+      "sha256": "47249fde40f88ec16b1777083dc05da7fa6897c107d8dc2e54e692878df0e63d",
+      "sha256_lf": "38925519b05192d20fc1c6f63e9edac051bc8e0c7e2f3b76a68197099df43d88"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_failure_report.py",
+      "sha256": "bd2e13e145dca7de21885f2e84a136e1a069179b7a841cd33a469f9b6e080b85",
+      "sha256_lf": "178d828563ed67f78a18c9706fda5c66e7119c2f7af1baf2d74a464ed5772a61"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_failure_report_r20.py",
+      "sha256": "bed14d1829a65ebc88b5d75205f45f0e3ae3897c710726602d730d2ecd0bf462",
+      "sha256_lf": "3ffd9599b3bd7ed4814ce4c543fd5db33cf7fdbcffdad0e2ea37a77fe5f8b885"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_failure_report_v5.py",
+      "sha256": "15a147119e3bd24b6be8c0665308423d1ff66c4a670a7605aff51cbf7a0874cc",
+      "sha256_lf": "15a147119e3bd24b6be8c0665308423d1ff66c4a670a7605aff51cbf7a0874cc"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_feishu_bitable.py",
+      "sha256": "5c80e0de3fe110a3b293c213d23075d088b26156638f66d044a780830dc48d07",
+      "sha256_lf": "856ff306006edee17c01235119f3a5cdca6f5649bd2c1ba8d811c9baad59ba7f"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_full_chain_stability.py",
+      "sha256": "afcc1629330c2ce7a726ec8aa3c5a1d892a11d07cd093e84fab05a95885e4584",
+      "sha256_lf": "b51e79ea65f43731af12bf403f6964fc390b898beb5475a8c7dc30ef3ed126d1"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_gui_api_bridge.py",
+      "sha256": "2cd88a578e97327db1265c26b1c26f44ffa792660e4d11b18da9ebc44c6cb225",
+      "sha256_lf": "706b2f1544c1b86616df05854bff698fc0a7a5ca24f52fa768689141680fe9dd"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_local_feishu_bridge.py",
+      "sha256": "0f7c8cccc864a33220837f15e93a4bca7b525948d667210e1ab4426a2da6cf02",
+      "sha256_lf": "3b59df74a2a46e4b53cffcf736e678380ee38cf91ea40099b54864c306fd05ae"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_local_standalone_auth.py",
+      "sha256": "cd03d6b7d87f3a411355e3da34caa6ae1820b2ceb1f2d9078938bf12253d3cb0",
+      "sha256_lf": "54bfb171eb1fc77a74848d08ea47f2ac3ad7650a7e0d4528f9ec32002d2aac90"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_material_metric_source_regression.py",
+      "sha256": "bc6271cba90f5ec9558a5fc8b80b6d3cfe3011b3d27553baae53f6b75c79aab2",
+      "sha256_lf": "b4bcf2538d5fd0e394688abaf4a7b17b2fc01bf92cc23038c19321d3a8179388"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_monitor_metric_contract.py",
+      "sha256": "f1d1497fa24f698c46278b1acc533ed2f22dfdcd52d936e6367f20f60dbc3fb7",
+      "sha256_lf": "a9d173134e5250e33c67e90bd70a8cf341a69d7a6efd6d1d13b98e89c676601a"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_multi_qianchuan_accounts.py",
+      "sha256": "0c026671a160884b2d9d70c6a21a16d077941a1952251469be42667a928dd0d2",
+      "sha256_lf": "8b30891972328d504986a23dfecd1c1d0012988da219252ec818cd22be61cf3a"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_official_api_backend.py",
+      "sha256": "3131b77513f093557c785e68c47f8afb75e0ecda28a15a084259f37a35e5b2a0",
+      "sha256_lf": "b567407842c0872f20b3a98045c5d0658e2e6200c4b3cecf9b1f0b9abe6e0fdb"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_official_api_runtime_settings.py",
+      "sha256": "b7fde129118026ae03eb617256c040d037dec7c366672afa91c6ac5980204184",
+      "sha256_lf": "249f8c2c21aeddf07e16e2515a572b5f02bb9618ea7d2cb3329e8ec397ee1b1c"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_official_collection_freshness.py",
+      "sha256": "c4c2500233da999ca52f0878efa8ce756f0727312d073b1346148d8c8289c3d5",
+      "sha256_lf": "d84d3ac8b4d10586654c78463ef561899c4b6aecf2cf86f5f56ad1dca9b79916"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_official_operation_logs.py",
+      "sha256": "91056386a0122114bf45eac3ab00242183a845c050171821aaf80e0e038188be",
+      "sha256_lf": "65ec40a7d27cd3335e5bd220aa288384e8f990b4dadbebef2a9565e3083f18a6"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_online_license.py",
+      "sha256": "9892d435fb32898c9d002c9e7e344aa670ab03a47f6482d6501ad2424e0310f7",
+      "sha256_lf": "1b48291e43b33a209247351abb21fbb49eaad54a90602ab0b6ec258025140ee7"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_operation_daily_report.py",
+      "sha256": "2394de449772d40a181c9150ab7e6233f0cdd260e0b7028b7563cf8be9ea767f",
+      "sha256_lf": "5b2cfd429a517049d05a907101be1b03616a3bada7f2d918362f4cb66962d1ee"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_operation_log_sync.py",
+      "sha256": "6c4d5e78de249693f319fd4b6e237b71bc7c4f6f1f505d7bdcc5cd305b5ea4ae",
+      "sha256_lf": "18cf0564b8d8b9ffe81d4e83c4871bce80d573dfec9d0e0bafee1f6aa369482e"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_product_promotion.py",
+      "sha256": "936d7365ecbd324feb2ad67683bf7476718bf834feb8381399df620ea83228ed",
+      "sha256_lf": "cca48fc00eed666f2317c9bb8c750ad240e97ee80ad6a759f1ee190b5dbd7a86"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_production_v1a.py",
+      "sha256": "07bca0e7b4351884d3a40f04f59eabd85ea30fe629136ded113521efbb3aed33",
+      "sha256_lf": "c7ca7e1ef4c0107d934cc109a870685291901fd9696267811ae2c41146f4380d"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_promotion_capability.py",
+      "sha256": "ac782ceff908ed97260b00c5f0ea1c9d54d61fc94a058076d1ff19845779844b",
+      "sha256_lf": "f852d37f5a4177156a9ea059aecca89bd88587eaaf16922256132bfa8a8573b3"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_qianchuan_account_selector.py",
+      "sha256": "a85b6ef8634a368c5df1e22c3be4b6e10e262c12889273aabd55f3931225c07c",
+      "sha256_lf": "e1a99fb23c55059806cea572ac17a61990f2fddf65e85b4b5281a651348c886e"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_r19_collection_recovery.py",
+      "sha256": "c9d992a40c842ecaf5703c659f06c360a524670abec4e0563d1b3c1fcd6a244e",
+      "sha256_lf": "6cffff6806a71ebe15ef94e505d1afae4bedf084fe2848341aa6be330799bb6e"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_r19_feishu_delivery.py",
+      "sha256": "235d7153625f442ea078e3873edec52c7f7476c6c4874f89bf8dc1b5403ac859",
+      "sha256_lf": "7523a4942ea9760874ab04ec3cbb618017c1409e5d08e8429bfdde0297bb0066"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_r19_submission_safety.py",
+      "sha256": "f5d5669e7e00db639de9fabb4125604df411d6b8a69498ede9a643531779e73e",
+      "sha256_lf": "39021c6ab9a0f56448cbb45d592861b878512d93613fac7dcd94a7937eadab21"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_r19_wakeup_claims.py",
+      "sha256": "e858a0b2a2b4e67e1944fc55a5a6e3759403a8d4a926d6de2ae9e731ac9e3cdb",
+      "sha256_lf": "472d5df65e6ee010e9a2002710f030305538c18e8df0efc045b23efd4eb75428"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_r20_authorization_collection.py",
+      "sha256": "d9da50245260c4f61e34dda53fbbb0cf9a72f6ad0490aa8d2b0753d923232f1f",
+      "sha256_lf": "6ee872be7d47555b1a4e107cf41c332888f63134e3f0e405a711270a939d2499"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_r20_collection_commit_fencing.py",
+      "sha256": "108fce723003623a0836b073156c10176fdaf94c5a624983d9ae73e8d0c68e41",
+      "sha256_lf": "04050baead8e2314f4e9db0b53622bd95cdf704fe3fe3e43f4affba142fdb419"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_r20_collection_commit_races.py",
+      "sha256": "a1cfb47625a6645e50d650252d86003a8319f41b14a640709ffc6829fec91b1c",
+      "sha256_lf": "e4c7823a20c6a0ce6f4884881063894a08fb958281efffc7f4c5f3d41eebba6d"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_r20_collection_status_display.py",
+      "sha256": "7059a10765a23390dedee984a679c8ca95ef7cec4ed4bcf4548ce85e9204c148",
+      "sha256_lf": "45ff59fdbd0ae7f363939c1ef7b1509a14292beac5ef03c17fd41edb1f7f4ac0"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_r20_independent_control_metrics.py",
+      "sha256": "69c50ddf8aec923283f25b0e6459918507e4d24893938ad132dd59b0bc81f6f4",
+      "sha256_lf": "6d6bc511000ac94fa8c2fd4d0ae105a72bfd31783427b9bd08f871bab9179feb"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_r20_pagination_runtime.py",
+      "sha256": "c44f84bb99808cd78959d1ab3ed44762e78cac7b22b521f066b6f71c29ef81bf",
+      "sha256_lf": "fd7b188397b45ab130b2580047fd194ebad0acc2ea6f23243355a7a14cf94a4a"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_r20_runtime_supervisor.py",
+      "sha256": "cc6dcc4978b108f5e93454f78a2dc1b23f538064faf6525a042382c8ba3d28bc",
+      "sha256_lf": "8f50c7b84ce73cdbf2e368b3157f80df8268679dbcad73004930c5f9f8a3d912"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_r20_startup_lifecycle.py",
+      "sha256": "3eeb6d44391c288a251387a6e8117010544caaa7197118d899611d04fac715ce",
+      "sha256_lf": "05ec62b69639ffdeab95361a428abcea0e7de04bd1e21a8260bad569c6da4665"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_r21_licensed_entry.py",
+      "sha256": "9e2223c13c4fe9469cb0a8644853f3585b5fc2fa5b6881c25a8a0ef05f0eb4f0",
+      "sha256_lf": "c647717aab522f2cc143fc26f62b5308cfecf2b956c1051065bafe3d7d0b769b"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_r21_page_loaded_evidence.py",
+      "sha256": "e95beaf56482de87a176f278b6a3d4cc7185070eda8dbe93919d17ebf8e200cd",
+      "sha256_lf": "b96b4add1df2ba4328dac090328e7ab785646cb94f0b78e20a1df3604a15427c"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_r21_runtime_registry.py",
+      "sha256": "47a89e92139fb27f9184fea1c0577d9c44f0992a55a75ed0bfe8245f5f4ec795",
+      "sha256_lf": "8f6d6724d5a9d51cc3135c5704f2b05430b07c271ddab4f4ece8175edbbd823b"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_r30_recovery.py",
+      "sha256": "1b1e66daecd6477812b71cd149450adf8b06011cb2e66781079ef5f77bde67aa",
+      "sha256_lf": "ad7c0c444dbc2bf08742536cd63d7ea15688548029566781c5a9a2b9d2d41bb7"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_rc27_catalog_and_stop.py",
+      "sha256": "6189815e4d101195c5f8ce20aa228e65a707d10ddf73b9563173074fcbd40c7a",
+      "sha256_lf": "e5048d815a3f708b6c76ce297eca1769146e423fe0864813cba417228029eff3"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_rc28_safety_hotfix.py",
+      "sha256": "afb0de9410df1bdf3467217491ce6748cfe68dbac43747d85bd0d1b2c8005817",
+      "sha256_lf": "aeff7e7e463779c2ead52353d881c8f718fa4a69ac54ab3850432717b407d79b"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_release_channels.py",
+      "sha256": "ca5a19f0f6082ee191f7a3982e7363922c1f8a38bccf23a642379dcb21847083",
+      "sha256_lf": "79c9cbb743c2e5abdc1d3c45df099532f38eb43b33f9b8a7a341666f6e50688e"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_retarget_budget_increase.py",
+      "sha256": "69965564554da069513fef14908366ea40e8615bd88555ce88dffaf275a304e9",
+      "sha256_lf": "6496cbc45d9e192b6bf78475970c4e8078a2d9d7ba99da7f03e9386050440c48"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_runtime_archive_verifier.py",
+      "sha256": "2e4c0b75bc4d78d3b9f23086df38fba7b1bac6bbb83756c574170eaf0d0b157a",
+      "sha256_lf": "bceaa7e2a648559b0367faec9b03692606dd50e955099bc53351635e0528622e"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_runtime_logging.py",
+      "sha256": "639550dc86a29e55e1006c75ee985e8146e6ccff022e697b01adc03a76fe0c1e",
+      "sha256_lf": "8b64634418e54c12ab51a4e4be7a0a8917d5d32f1adadc39a0d235906778c13e"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_sparse_report_completeness.py",
+      "sha256": "42d7c6e5564d3523c99af3fc8e8e1465feaf788352403c6667dcce4c0745debb",
+      "sha256_lf": "b7f290a458ed888c1a81e64bed5ea01a902abc0809b9f9b7b44a858fac0dbdca"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_startup_bootstrap.py",
+      "sha256": "4f56053395562da7ef4905b0b3d97b4a0d6d9cb341f612d207ff47a0a8162395",
+      "sha256_lf": "6be5c57223183e3e8a021f9e31bf48294a5e221710abbbb3e3f91b7e4e2bc994"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_stop_pre_submit_safety.py",
+      "sha256": "77696e49e085bc355cf924b2b08c83c6f3d8e96a5902608500de784473a01ed2",
+      "sha256_lf": "8b674464c781d506e4dff7b9db7f2773b551313fd785ad9c3d388a806e5a66e2"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_stop_strategy_account_scope.py",
+      "sha256": "a986958cc8d07663c1f7663410f8115fd6949972206aab1c23faed334a233258",
+      "sha256_lf": "d81f81b2101eca360a535e59d4316d406e1341d7d92d6e8901686fa3cd0904d6"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_unified_authorization.py",
+      "sha256": "569b367185b26a7fdd4ca6fae05f0b6320cf6ced62b611874f514706462a5170",
+      "sha256_lf": "336f4c06a9bbd370316997db0cdfbfd1bc745755b780110016c6b50191613f84"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_unified_release_configuration.py",
+      "sha256": "eb83f774c1c330db0af749e4f4bc59c929d211867b1cd09f6373384ef99cf5e0",
+      "sha256_lf": "07c5261ff663dae68446f02c9c49cee583da7b7bc1ae650835ab24cb36202080"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_unified_windows_packaging.py",
+      "sha256": "75dd2286fd7bf0249ff758f1223767fa5034f2153059e71d9e67a2d8ea2759f8",
+      "sha256_lf": "e9d1e66028464aa947f9867d6802832ff317c35ea0e96fe123df9151c463dc7b"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_update_manifest.py",
+      "sha256": "c79ae232cf5502188d9ec4bde0c33f504e50da4c39564a31270fe8d71bdcd2ab",
+      "sha256_lf": "735856e8327fa7658724e8e4330a293854a49016d8ee2b5f14039a20f4bca4f4"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_v0141_catalog_refresh.py",
+      "sha256": "c129b02488a3578eda54ddfa06387740adedafe2e156ccba80db1dca691a0e3c",
+      "sha256_lf": "d4cc0302f78cef3a120ba780fd37a63cc91629f3bdfb8c2ac0be1c97637223b0"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_v0142_single_instance_activation.py",
+      "sha256": "c97003a0f94dfea06b0e42d33ef2317af0d63ea5fbca090e0d77ea4f510fa4f7",
+      "sha256_lf": "9f1e208f287b67f2685ab21d208a633d409bbc49c65ac92cb6c9f56eb52c1cf8"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_v0145_catalog_ui_watch.py",
+      "sha256": "5eb3c32db7a544be817eae069ae70da898079ac3c43b66aa80c1a776893d28ea",
+      "sha256_lf": "b2096c597b590066f3b847bdcdf3f826053e11e7980fa6fea296ed7bb9b1f6c7"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_v1a_account_collection.py",
+      "sha256": "205d84ce6c4a29aeb47411cc259891fb672827da10bef9cf065f68e2962addd4",
+      "sha256_lf": "e181c2f9b7cb292ef6ced0999ba9f6b40f2b1319b2c4c0b8b1c44ad0f28c1856"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_windows_release_privacy.py",
+      "sha256": "05d916698482bcb031e82345865a092026d8acbbe6f9e7d4d8d3119366afcd6f",
+      "sha256_lf": "0a1f04445a48e2ef29b870dd21f79e381b68066ee79e1aaaed56371ab1a6e22a"
+    },
+    {
+      "path": "qcsckp-desktop/tests/test_windows_updater_ready.py",
+      "sha256": "3c587ca3dea6ab299f9646b0d6c004855eb91a55e36f3dec9a518a8d8087ffdb",
+      "sha256_lf": "866840ad930d4b817df02b8bc95d2e79fd0f98b16e7d412b14f65d157a38942d"
+    },
+    {
+      "path": "qcsckp-desktop/tools/restore_rc23_snapshot.py",
+      "sha256": "5e2cb2e81e8cbce166b34235ddf3213035f8d568b64f974d4ab9f211a6bb4a28",
+      "sha256_lf": "30c9b0a63b8a75ec4b7cd6fc098b7674e8ce28da4d4760aa3e9efce7d198fa25"
+    },
+    {
+      "path": "qcsckp-desktop/tools/run_isolated_tests.py",
+      "sha256": "4c05118c518bbf6037db0309ac2d66acc7df504438ef10491687a9744f749b51",
+      "sha256_lf": "7da828a5d6b4fff8a52e13b0d2c3f49dfa4ab4b0e2eb2d2a66307d3e630fc31a"
+    },
+    {
+      "path": "qcsckp-desktop/utils/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "sha256_lf": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "qcsckp-desktop/utils/clean_promotion.py",
+      "sha256": "d45817bcd952ad17d4c5a778640bd1ff0dc74fa065a7996dada8a883c6bdb975",
+      "sha256_lf": "ca3cc80751b3604f5787e408762000aeeac8dcee0030bd007fe602703f3d131b"
+    },
+    {
+      "path": "qcsckp-desktop/utils/common.py",
+      "sha256": "1165f7d5b68384594f3b4a23b9b5fdee94926bc1004354562bde3bbb6db08fb7",
+      "sha256_lf": "49c5b4c88ab2fc1254d80f2fdfde7a5224739775c36ff0aa2f5a91fec7e1a3f4"
+    },
+    {
+      "path": "qcsckp-desktop/utils/dashboard_storage_maintenance.py",
+      "sha256": "9ae62c3d76654bace166d1f690034c9bb233ecce34be097e07cdac4d53216333",
+      "sha256_lf": "1a9ff6f65a594ac70f9664f6c1f0d09c9869ba76de02642c08468de3a498129d"
+    },
+    {
+      "path": "qcsckp-desktop/utils/log.py",
+      "sha256": "43be8c6cc2b976df7d9694031e6d98d227cb798599004d9c43784c8f04a7e8d8",
+      "sha256_lf": "d1db7bfcb0f652a93989afb3bf134f4f3a3bc928407b2482d45517a090030956"
+    },
+    {
+      "path": "qcsckp-desktop/utils/log_redaction.py",
+      "sha256": "1918d33118a0ebb99b0e48fac8620c4882e5db9569d8878d1ccb56822d9b9727",
+      "sha256_lf": "c1379a476adef662b56b8221c237710caa7683c3b6432fc0419a73bba2d2b8e2"
+    },
+    {
+      "path": "qcsckp-desktop/utils/operation_log_identity.py",
+      "sha256": "24455f6f4716f3644f9366a372065e40fc6bb7e1299f97f790d628aa41d76c5a",
+      "sha256_lf": "8bf18a26e3053c2140b738f9cf780d5983292bcfccc29db1ce52b67778da5639"
+    },
+    {
+      "path": "qcsckp-desktop/utils/pmc_estimated_ecpm.py",
+      "sha256": "37dcf38add99e099cccae29244415e1b8411bbac25df6035ad57a94b050045c6",
+      "sha256_lf": "06baacdc77468ad9b0cca504d913989f2dc717305737d9a383b563c81c9828c2"
+    },
+    {
+      "path": "qcsckp-desktop/utils/sqlite_prune_scheduler.py",
+      "sha256": "7576253f298914ded911441d85fa1f957107dc6bc3efb316976964c88290fdee",
+      "sha256_lf": "89018dea3205d41babd1d4c5fc0710c0af6cb562efd6ea46cf443c86db5b00c3"
+    },
+    {
+      "path": "qcsckp-desktop/utils/sqlite_store.py",
+      "sha256": "c0eba581bb39c78846566446cf029bdc6e6d9792f78c891b0370d76d09be185d",
+      "sha256_lf": "6c8ef91f004056aeaf4fe7a96e146b0b8b26f5e70c51104496839c8b0c2e5359"
+    },
+    {
+      "path": "qcsckp-desktop/uv.lock",
+      "sha256": "884f5c6fc3f50fd3401bdd7765fc3c346788d2e90d6df5f347a7cca2baae4f1d",
+      "sha256_lf": "ef7968ffbc45ed11afdef36496f41bc6f7ce476a0c7c977786b6224eb38244a5"
+    }
+  ],
+  "documented_changes": {
+    ".gitignore": "保留原规则并补充本仓库 CI 报告和凭据排除规则",
+    "qcsckp-desktop/tests/test_sparse_report_completeness.py": "CI 移植测试夹具：通过 PATH 查找 Node，缺失时明确失败，去除开发者私有绝对路径；断言不变",
+    "qcsckp-desktop/tests/test_r20_startup_lifecycle.py": "CI 移植测试夹具：临时目录先 resolve，保证 Windows 短路径和解析后路径使用同一标识；断言不变"
+  }
+}

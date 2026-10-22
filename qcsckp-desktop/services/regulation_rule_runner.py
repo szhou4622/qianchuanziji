@@ -1,0 +1,2110 @@
+# -*- coding: utf-8 -*-
+"""
+规则化停投调度：按固定间隔（默认 5 分钟）从 pmc_roi2_assist_task（与 DashboardApi.get_roi2_assist_table_data 一致）
+拉取「ad_delivery_type=0 调控中」任务，并按 metrics_observed_at 校验真实指标读取时间，
+按 stat_cost_for_roi2_assist 降序；再按每条策略的 trigger（ROI2 调控指标）筛选，
+对任务执行暂停或结束（见 regulation_service）。写入 pmc_regulation_run（停投不做素材级限频）。
+多策略并行默认最多 3 路（环境变量 REGULATION_STRATEGY_PARALLEL）。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import json
+import os
+import threading
+import time
+import traceback
+from datetime import datetime, timedelta
+from functools import partial
+from typing import Any, Dict, List, Mapping, Optional, Tuple
+
+from api.dashboard import DashboardApi
+from api.rule_regulation_config import (
+    build_trigger_evaluation_snapshot_roi2_assist,
+    evaluate_trigger_roi2_assist,
+    load_rule_regulation_config,
+)
+from config import CURRENT_VERSION, QIANCHUAN_BACKEND
+from services.regulation_service import (
+    QianChuanRegulationStopService,
+    regulation_log_tag,
+)
+from services.promotion_browser_lock import exclusive_browser_operation
+from services.qianchuan_accounts import schedulable_promotion_targets
+from services.plan_system import normalize_plan_system
+from services.promotion_capability import (
+    check_target_capability,
+    parse_target_capability,
+)
+from services.control_task_cycle import stop_cycle_execution_key, stop_cycle_state
+from utils.log import logger
+from utils.sqlite_store import SQLiteStore, init_sqlite_schema
+from services.rule_wakeup import TargetWakeBatch
+
+DEFAULT_INTERVAL_SEC = 300
+MAX_STRATEGY_PARALLEL = 3
+_DASHBOARD_PAGE_SIZE = 20_000
+# 停投调度拉取调控任务时：仅处理「入库更新时间」近 N 分钟内有变动的行，减少对已停滞数据的重复跳过；0=沿用大屏默认（近 1 天）
+_DEFAULT_ASSIST_UPDATED_WITHIN_MIN = 30
+_RUNNER_LOCK = threading.Lock()
+_RUNNER_THREAD: Optional[threading.Thread] = None
+_RUNNER_STOP = threading.Event()
+_TARGET_WAKE = TargetWakeBatch()
+_RUNNER_WAKE = _TARGET_WAKE.event
+
+
+def _shadow_mode_enabled() -> bool:
+    return str(os.environ.get("QCSCKP_REGULATION_SHADOW_MODE") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _stop_target_status_usable(target: Mapping[str, Any]) -> bool:
+    status = str(target.get("last_status") or "").strip().lower()
+    if status == "ok":
+        return True
+    # Only a verified, independently scoped control read may bypass errors
+    # belonging to material collection. Identity/verification failures never do.
+    return bool(parse_target_capability(target).get("assist_independent_sync")) and status in {
+        "pending", "collecting", "error", "pagination_error", "rate_limited",
+        "suspicious_empty", "data_delay",
+    }
+
+
+def _observation_age(value: Any) -> Optional[timedelta]:
+    try:
+        observed = datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
+        now = datetime.now(observed.tzinfo) if observed.tzinfo else datetime.now()
+        return now - observed
+    except (TypeError, ValueError):
+        return None
+
+
+def _target_assist_sync_ready(
+    target: Dict[str, Any],
+    *,
+    max_age_minutes: int = _DEFAULT_ASSIST_UPDATED_WITHIN_MIN,
+) -> Tuple[bool, str]:
+    capability = parse_target_capability(target)
+    if bool(capability.get("assist_sync_in_progress")):
+        return False, "调控任务正在同步中"
+    if not bool(capability.get("assist_sync_enabled")):
+        return False, "调控任务采集未启用"
+    if not bool(capability.get("assist_sync_ok")):
+        return False, "最近一轮调控任务未完整同步"
+    if capability.get("assist_independent_sync"):
+        if (not _stop_target_status_usable(target)
+                or str(target.get("verification_state") or "") != "verified"
+                or str(target.get("last_verification_error") or "").strip()
+                or str(target.get("platform_status") or "") not in {"active", "learning"}
+                or capability.get("control_plan_status") not in {"active", "learning"}
+                or capability.get("control_metric_source") != "control_task_list"
+                or capability.get("control_scene_scope") != "MATERIAL_ADD_BUDGET"):
+            return False, "调控数据不能替代失效的计划身份、场景或投放状态核验"
+        scope = capability.get("control_scope")
+        if not isinstance(scope, dict) or any(
+            str(scope.get(key) or "") != str(target.get(key) or "")
+            for key in ("target_uid", "account_uid", "aadvid", "ad_id", "promotion_scene", "plan_system")
+        ):
+            return False, "独立调控快照的账户或目标范围已变化"
+        from services.qianchuan_session import current_session_owner
+        scope_owner = str(scope.get("owner_username") or "").strip().casefold()
+        if not scope_owner or scope_owner != str(current_session_owner() or "").strip().casefold():
+            return False, "独立调控快照的工具账户已变化"
+        identity = capability.get("control_authorization_identity")
+        if identity:
+            try:
+                from services.qianchuan_open_api.token_provider import authorization_identity_is_current
+                if not authorization_identity_is_current(identity):
+                    return False, "独立调控快照的授权代次已变化"
+            except Exception:
+                return False, "独立调控快照的授权标识不可核验"
+        generation = str(capability.get("control_collection_generation") or "")
+        if generation:
+            from services.collection_lifecycle import generation as current_generation
+            if generation != current_generation():
+                return False, "独立调控快照的采集代次已失效"
+        detail_age = _observation_age(capability.get("control_plan_verified_at"))
+        if detail_age is None or detail_age < timedelta(minutes=-5) or detail_age > timedelta(minutes=max(1, int(max_age_minutes))):
+            return False, "调控快照的计划详情核验已过期"
+    raw = str(capability.get("assist_synced_at") or "").strip()
+    age = _observation_age(raw)
+    if age is None:
+        return False, "调控任务同步时间无效"
+    if age < timedelta(minutes=-5) or age > timedelta(
+        minutes=max(1, int(max_age_minutes))
+    ):
+        return False, "调控任务同步结果已过期"
+    return True, ""
+
+
+def _stop_strategy_snapshot(strategy: Dict[str, Any]) -> Dict[str, Any]:
+    """Return only the mutable strategy fields that authorize a stop write."""
+    return {
+        "id": str(strategy.get("id") or ""),
+        "title": str(strategy.get("title") or ""),
+        "account_uid": str(strategy.get("account_uid") or ""),
+        "aavid": str(strategy.get("aavid") or ""),
+        "target_uid": str(strategy.get("target_uid") or ""),
+        "trigger": (
+            strategy.get("trigger")
+            if isinstance(strategy.get("trigger"), dict)
+            else {}
+        ),
+        "regulation_stop_action": str(
+            strategy.get("regulation_stop_action") or "pause"
+        ).strip().lower(),
+        "action_mode": str(
+            strategy.get("action_mode") or "auto_execute"
+        ).strip().lower(),
+    }
+
+
+def _find_stop_strategy(
+    cfg: Dict[str, Any],
+    strategy_id: str,
+) -> Optional[Dict[str, Any]]:
+    for strategy in cfg.get("strategies") or []:
+        if (
+            isinstance(strategy, dict)
+            and str(strategy.get("id") or "") == str(strategy_id or "")
+        ):
+            return strategy
+    return None
+
+
+def _stop_strategy_was_invalidated(error: str) -> bool:
+    try:
+        parsed = json.loads(error)
+        if isinstance(parsed, dict):
+            error = str(parsed.get("detail") or parsed.get("error") or error)
+    except (TypeError, ValueError):
+        pass
+    return error in {
+        "规则化停投已关闭", "停投策略已删除", "停投策略参数已经变更",
+        "调控任务已加入停投白名单",
+    }
+
+
+def _revalidate_stop_candidate(*args, **kwargs):
+    result = _revalidate_stop_candidate_impl(*args, **kwargs)
+    if result[3]:
+        from services.operation_diagnostics import record
+        record("stop_skipped", target_uid=kwargs.get("target_uid"), task_id=kwargs.get("assist_task_id"),
+               reason=result[3], category="candidate_revalidation")
+    return result
+
+
+def _revalidate_stop_candidate_impl(
+    db: SQLiteStore,
+    *,
+    original_strategy: Dict[str, Any],
+    expected_owner: str,
+    expected_session_epoch: int,
+    target_uid: str,
+    assist_task_id: str,
+    aavid: str,
+    ad_id: str,
+    promotion_scene: str,
+    trigger: Dict[str, Any],
+    max_age_minutes: int,
+) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], str, str]:
+    """在取得浏览器独占锁后重读目标和指标，关闭检查后等待锁的竞态窗口。"""
+    from services.qianchuan_session import (
+        automation_session_ready,
+        current_session_owner,
+    )
+
+    owner = str(current_session_owner() or "").strip().casefold()
+    expected_owner = str(expected_owner or "").strip().casefold()
+    if not owner or owner != expected_owner:
+        return None, None, "unknown", "工具账号已切换或退出"
+    session_gate = automation_session_ready(expected_owner)
+    try:
+        current_epoch = int(session_gate.get("session_epoch") or 0)
+    except (TypeError, ValueError):
+        current_epoch = 0
+    if (
+        not session_gate.get("ready")
+        or current_epoch != int(expected_session_epoch)
+    ):
+        return None, None, "unknown", "千川登录会话已失效或重新授权"
+
+    current_cfg = load_rule_regulation_config()
+    if not current_cfg.get("enabled"):
+        return None, None, "unknown", "规则化停投已关闭"
+    strategy_id = str(original_strategy.get("id") or "")
+    current_strategy = _find_stop_strategy(current_cfg, strategy_id)
+    if not current_strategy:
+        return None, None, "unknown", "停投策略已删除"
+    original_snapshot = _json_dumps(_stop_strategy_snapshot(original_strategy))
+    current_snapshot = _json_dumps(_stop_strategy_snapshot(current_strategy))
+    if current_snapshot != original_snapshot:
+        return None, None, "unknown", "停投策略参数已经变更"
+    whitelist = {
+        str(item).strip()
+        for item in (current_cfg.get("whitelist_assist_ids") or [])
+        if str(item).strip()
+    }
+    if str(assist_task_id or "").strip() in whitelist:
+        return None, None, "unknown", "调控任务已加入停投白名单"
+
+    target = db.select_one(
+        "promotion_target",
+        where={"target_uid": target_uid},
+    ) or {}
+    row = db.select_one(
+        "pmc_roi2_assist_task",
+        where={
+            "target_uid": target_uid,
+            "assist_task_id": assist_task_id,
+        },
+    ) or {}
+    target_system = normalize_plan_system(
+        target.get("plan_system") or "unknown"
+    )
+    account = (
+        db.select_one(
+            "qianchuan_account",
+            where={"account_uid": str(target.get("account_uid") or "")},
+        )
+        if target
+        else None
+    )
+    row_system = normalize_plan_system(row.get("plan_system") or "unknown")
+    account_owner = str((account or {}).get("owner_username") or "").strip().casefold()
+    row_account_uid = str(row.get("account_uid") or "").strip()
+    strategy_account_uid = str(
+        original_strategy.get("account_uid") or ""
+    ).strip()
+    strategy_aavid = str(original_strategy.get("aavid") or "").strip()
+    if (
+        not target
+        or not bool(target.get("enabled"))
+        or not bool(target.get("monitor_eligible"))
+        or not bool(target.get("stop_eligible"))
+        or str(target.get("capacity_state") or "") != "active"
+        or not account
+        or not bool(account.get("enabled"))
+        or bool(target.get("automation_write_blocked"))
+        or not _stop_target_status_usable(target)
+        or str(target.get("aadvid") or "") != aavid
+        or str(target.get("ad_id") or "") != ad_id
+        or str(target.get("promotion_scene") or "") != promotion_scene
+        or account_owner != expected_owner
+        or (
+            strategy_account_uid
+            and strategy_account_uid != str(target.get("account_uid") or "")
+        )
+        or (strategy_aavid and strategy_aavid != str(target.get("aadvid") or ""))
+    ):
+        return None, None, target_system, "监控计划已停用、状态异常或目标身份变化"
+    if (
+        not row
+        or str(row.get("aadvid") or "") != aavid
+        or str(row.get("ad_id") or "") != ad_id
+        or str(row.get("promotion_scene") or "") != promotion_scene
+        or (row_system != "unknown" and row_system != target_system)
+        or (
+            row_account_uid
+            and row_account_uid != str(target.get("account_uid") or "")
+        )
+    ):
+        return None, None, target_system, "调控任务已删除或归属发生变化"
+    if target_system == "unknown":
+        return None, None, target_system, "计划体系尚未确认"
+    assist_ready, assist_error = _target_assist_sync_ready(
+        target,
+        max_age_minutes=max_age_minutes,
+    )
+    if not assist_ready:
+        return None, None, target_system, assist_error
+    independent = bool(parse_target_capability(target).get("assist_independent_sync"))
+    if independent and (row.get("data_source") != "qianchuan_open_api"
+            or row_account_uid != str(target.get("account_uid") or "") or row_system != target_system):
+        return None, None, target_system, "独立调控指标缺少明确账户、来源或计划体系"
+    metric_age = _observation_age(row.get("metrics_observed_at"))
+    if metric_age is None:
+        return None, None, target_system, "调控任务指标采集时间无效"
+    if metric_age < timedelta(minutes=-5) or metric_age > timedelta(minutes=max_age_minutes):
+        return None, None, target_system, "调控任务指标已过期"
+    if independent:
+        status_age = _observation_age(row.get("task_status_observed_at"))
+        if (status_age is None or status_age < timedelta(minutes=-5)
+                or status_age > timedelta(minutes=max_age_minutes)
+                or row.get("task_status_source") not in {"api", "api_filtered", "request_filter_inferred"}
+                or str(row.get("ad_delivery_name") or "").upper() not in {
+                    "PROCESSING", "ENABLE", "ENABLED", "ACTIVE", "RUNNING", "DELIVERING"
+                } or row.get("ad_delivery_type") != 0):
+            return None, None, target_system, "调控任务缺少新鲜且明确的运行状态"
+    capability_ok, capability_error = check_target_capability(
+        target,
+        action="regulation",
+        promotion_scene=promotion_scene,
+        plan_system=target_system,
+    )
+    if not capability_ok:
+        return None, None, target_system, capability_error
+    delivery_type = row.get("ad_delivery_type")
+    if str(delivery_type if delivery_type is not None else "0").strip() not in {
+        "",
+        "0",
+    }:
+        return None, None, target_system, "调控任务已不在执行中"
+    if not evaluate_trigger_roi2_assist(trigger, row):
+        return None, None, target_system, "最新调控指标已不满足停投策略"
+    return target, row, target_system, ""
+
+
+def _pre_submit_stop_check(
+    db: SQLiteStore, *, expected_cycle_key: str, **candidate: Any,
+) -> str:
+    """Recheck mutable local evidence after the official read-only preflight."""
+    _target, row, _system, error = _revalidate_stop_candidate(db, **candidate)
+    if error:
+        return error
+    cycle = stop_cycle_state(
+        db, candidate["target_uid"], candidate["assist_task_id"], assist_row=row,
+    )
+    if cycle.get("blocked") or str(cycle.get("cycle_key") or "") != expected_cycle_key:
+        return "调控任务恢复周期已变化或已有停投结果，本卡未提交停投"
+    return ""
+
+
+def _assist_updated_within_minutes_from_env() -> Optional[int]:
+    e = os.environ.get("REGULATION_ASSIST_UPDATED_WITHIN_MINUTES", "").strip()
+    if e == "":
+        return _DEFAULT_ASSIST_UPDATED_WITHIN_MIN
+    try:
+        n = int(e)
+        if n <= 0:
+            return None
+        return min(n, 24 * 60)
+    except ValueError:
+        return _DEFAULT_ASSIST_UPDATED_WITHIN_MIN
+
+_assist_task_locks: Dict[str, asyncio.Lock] = {}
+_assist_task_locks_guard = asyncio.Lock()
+
+
+async def _lock_for_assist_task(
+    aid: str,
+    target_uid: Optional[str] = None,
+) -> asyncio.Lock:
+    k = (
+        f"{str(target_uid or 'legacy_unscoped').strip()}:"
+        f"{str(aid).strip() or '__empty__'}"
+    )
+    async with _assist_task_locks_guard:
+        if k not in _assist_task_locks:
+            _assist_task_locks[k] = asyncio.Lock()
+        return _assist_task_locks[k]
+
+
+def _beijing_now_str() -> str:
+    return (datetime.utcnow() + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _json_dumps(obj: Any) -> str:
+    try:
+        return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+    except Exception:
+        return "{}"
+
+
+def resolve_ad_id_for_aavid(db: SQLiteStore, aavid: str) -> Optional[str]:
+    rows = db.select(
+        table="pmc_ad_detail_basic",
+        fields="ad_id",
+        where="aadvid = ?",
+        params=(str(aavid).strip(),),
+        limit=1,
+    )
+    if not rows:
+        return None
+    v = rows[0].get("ad_id")
+    if v is None:
+        return None
+    s = str(v).strip()
+    return s if s else None
+
+
+def _task_name_from_assist_row(row: Dict[str, Any]) -> str:
+    """与 pmc_roi2_assist_task.task_name 一致。"""
+    if not isinstance(row, dict):
+        return ""
+    v = row.get("task_name")
+    if v is None:
+        return ""
+    s = str(v).strip()
+    return s[:512] if s else ""
+
+
+def _product_fields_from_assist_row(
+    db: SQLiteStore,
+    row: Dict[str, Any],
+    target_uid: str,
+) -> tuple[str, str]:
+    raw = row.get("product_ids_json")
+    try:
+        product_ids = json.loads(raw) if isinstance(raw, str) else raw
+    except (TypeError, ValueError, json.JSONDecodeError):
+        product_ids = []
+    if not isinstance(product_ids, list):
+        product_ids = []
+    ids = list(dict.fromkeys(str(x or "").strip() for x in product_ids if str(x or "").strip()))
+    if not ids:
+        return "", ""
+    names: List[str] = []
+    for product_id in ids:
+        product = db.select_one(
+            "promotion_product",
+            fields="product_name",
+            where={"target_uid": target_uid, "product_id": product_id},
+        )
+        name = str((product or {}).get("product_name") or "").strip()
+        if name:
+            names.append(name)
+    return ",".join(ids), "、".join(names)
+
+
+def has_completed_stop(
+    db: SQLiteStore,
+    target_uid: str,
+    assist_task_id: str,
+    assist_row: Optional[Dict[str, Any]] = None,
+) -> bool:
+    return bool(
+        stop_cycle_state(
+            db,
+            target_uid,
+            assist_task_id,
+            assist_row=assist_row,
+        ).get("blocked")
+    )
+
+
+def _insert_regulation_run(
+    db: SQLiteStore,
+    *,
+    aavid: str,
+    ad_id: str,
+    target_uid: str = "legacy_unscoped",
+    promotion_scene: str = "live",
+    plan_system: str = "unknown",
+    product_id: str = "",
+    product_name: str = "",
+    task_name: str = "",
+    strategy_name: str = "",
+    assist_task_id: str = "",
+    stop_action: str = "",
+    started_at: str,
+    ended_at: str,
+    duration_ms: int,
+    status: int,
+    step: str,
+    message: str,
+    detail: str,
+    rule_full_json: str,
+    trigger_snapshot_json: str,
+    query_snapshot_json: str,
+    headless: bool,
+    browser_headless_rule: bool,
+    trigger_source: str = "scheduler",
+    execution_uid: str = "",
+    execution_state: str = "completed",
+) -> None:
+    _sn = str(strategy_name or "").strip()[:128]
+    if not _sn or _sn == "?":
+        _sn = None
+    _tn = str(task_name or "").strip()
+    try:
+        target = db.select_one(
+            "promotion_target",
+            fields="account_uid",
+            where={"target_uid": str(target_uid or "legacy_unscoped")},
+        ) or {}
+        account_uid = str(target.get("account_uid") or "")
+    except Exception:
+        account_uid = ""
+    data: Dict[str, Any] = {
+        "aavid": aavid,
+        "account_uid": account_uid,
+        "ad_id": ad_id,
+        "target_uid": str(target_uid or "legacy_unscoped"),
+        "promotion_scene": str(promotion_scene or "live"),
+        "plan_system": normalize_plan_system(plan_system or "unknown"),
+        "product_id": str(product_id or "").strip() or None,
+        "product_name": str(product_name or "").strip() or None,
+        "assist_task_id": str(assist_task_id or "").strip() or None,
+        "task_name": _tn if _tn else None,
+        "strategy_name": _sn,
+        "stop_action": str(stop_action or "").strip()[:32] or None,
+        "started_at": started_at,
+        "ended_at": ended_at,
+        "duration_ms": duration_ms,
+        "status": status,
+        "execution_uid": str(execution_uid or ""),
+        "execution_state": str(execution_state or "completed"),
+        "step": step,
+        "message": message[:2000] if message else "",
+        "detail": detail[:8000] if detail else "",
+        "rule_full_json": rule_full_json,
+        "trigger_snapshot_json": trigger_snapshot_json,
+        "query_snapshot_json": query_snapshot_json,
+        "headless": 1 if headless else 0,
+        "browser_headless_rule": 1 if browser_headless_rule else 0,
+        "trigger_source": (str(trigger_source or "scheduler").strip()[:64] or "scheduler"),
+        "app_version": CURRENT_VERSION,
+    }
+    run_id = db.insert(table="pmc_regulation_run", data=data)
+    try:
+        from api.operation_events import upsert_operation_event
+
+        upsert_operation_event(
+            {
+                "event_uid": f"regulation_run:{run_id}",
+                "aavid": aavid,
+                "account_uid": account_uid,
+                "ad_id": ad_id,
+                "target_uid": str(target_uid or "legacy_unscoped"),
+                "promotion_scene": str(promotion_scene or "live"),
+                "plan_system": normalize_plan_system(plan_system or "unknown"),
+                "product_id": str(product_id or "").strip(),
+                "product_name": str(product_name or "").strip(),
+                "source": "tool_direct",
+                "action_type": "stop",
+                "object_type": "assist_task",
+                "object_id": str(assist_task_id or ""),
+                "object_name": _tn,
+                "plan_id": ad_id,
+                "regulate_task_id": str(assist_task_id or ""),
+                "status": (
+                    "pending"
+                    if str(execution_state or "") == "submitted_verifying"
+                    else ("success" if status in (1, 2) else "failed")
+                ),
+                "summary": message or "停投",
+                "detail": detail,
+                "request": {"stop_action": stop_action},
+                "trigger_json": trigger_snapshot_json,
+                "response": {"step": step},
+                "cloud_task_id": str(execution_uid or ""),
+                "occurred_at": ended_at,
+            },
+            db,
+        )
+    except Exception:
+        logger.exception("%s 统一操作流水写入失败 run_id=%s", regulation_log_tag(scheduler=True), run_id)
+    if execution_uid and execution_state == "submitted_verifying":
+        try:
+            from services.official_api_reconciliation import replay_terminal_reconciliations
+            account = db.select_one("qianchuan_account", where={"account_uid": account_uid}) or {}
+            replay_terminal_reconciliations(
+                str(account.get("owner_username") or ""), db=db, execution_uid=execution_uid,
+            )
+        except Exception:
+            # The durable pending projection is retried by reconciliation.
+            logger.exception("停投流水已保存，补齐已完成核验结果失败 run_id=%s", run_id)
+
+
+async def _process_approved_stop_tasks(
+    db: SQLiteStore,
+    *,
+    max_tasks: int = 20,
+) -> None:
+    """Claim approved stop cards and execute only after a full locked revalidation."""
+    from services.local_feishu_bridge import (
+        pull_local_stop_task,
+        report_local_stop_task as _report_local_stop_task,
+    )
+    from services.qianchuan_session import current_session_owner
+
+    for _ in range(max(1, int(max_tasks))):
+        pulled = pull_local_stop_task()
+        if not pulled.get("success"):
+            logger.warning("[规则化停投] 领取飞书停投任务失败：%s", pulled.get("message"))
+            return
+        task = pulled.get("data")
+        if not isinstance(task, dict):
+            return
+        task_uid = str(task.get("task_uid") or "")
+        claim_token = str(task.get("claim_token") or "")
+        fence = int(task.get("fencing_token") or 0)
+        report_local_stop_task = partial(_report_local_stop_task, fencing_token=fence)
+        original_strategy = (
+            dict(task.get("rule_snapshot") or {})
+            if isinstance(task.get("rule_snapshot"), dict)
+            else {}
+        )
+        trigger = (
+            dict(task.get("trigger") or {})
+            if isinstance(task.get("trigger"), dict)
+            else dict(original_strategy.get("trigger") or {})
+        )
+        target_uid = str(task.get("target_uid") or "")
+        assist_task_id = str(task.get("assist_task_id") or "")
+        aavid = str(task.get("aavid") or "")
+        ad_id = str(task.get("ad_id") or "")
+        promotion_scene = str(task.get("promotion_scene") or "live")
+        stop_action = str(
+            task.get("regulation_stop_action") or "pause"
+        ).strip().lower()
+        strategy_name = str(
+            task.get("strategy_name")
+            or original_strategy.get("title")
+            or "停投策略"
+        )[:64]
+        # 任务创建时已经按工具账号隔离；执行时以任务快照里的账号为准，
+        # 再由复核函数与当前千川会话所有者比对，避免切换账号后串任务。
+        expected_owner = str(
+            task.get("account_username") or current_session_owner() or ""
+        ).strip().casefold()
+        try:
+            expected_epoch = int(task.get("qianchuan_session_epoch") or 0)
+            aavid_int = int(aavid)
+            ad_id_int = int(ad_id)
+        except (TypeError, ValueError):
+            report_local_stop_task(
+                task_uid,
+                claim_token,
+                "failed",
+                message="停投任务账户或计划ID无效",
+            )
+            continue
+        if (
+            not original_strategy
+            or not trigger
+            or not target_uid
+            or not assist_task_id
+            or stop_action not in {"pause", "delete"}
+        ):
+            report_local_stop_task(
+                task_uid,
+                claim_token,
+                "failed",
+                message="停投任务快照不完整",
+            )
+            continue
+        executing_report = report_local_stop_task(
+            task_uid,
+            claim_token,
+            "executing",
+            message="已领取，正在重新核验账户、计划、策略和实时指标",
+        )
+        if not executing_report.get("success"):
+            logger.warning("停投领取权已失效，未提交 task=%s: %s", task_uid, executing_report.get("message"))
+            continue
+        lock = await _lock_for_assist_task(assist_task_id, target_uid)
+        started_at = _beijing_now_str()
+        started = time.time()
+        svc: Optional[QianChuanRegulationStopService] = None
+        try:
+            async with lock:
+                async with exclusive_browser_operation(
+                    f"飞书确认停投:{target_uid}:{assist_task_id}",
+                    priority=20,
+                ):
+                    (
+                        latest_target,
+                        latest_row,
+                        latest_system,
+                        error,
+                    ) = _revalidate_stop_candidate(
+                        db,
+                        original_strategy=original_strategy,
+                        expected_owner=expected_owner,
+                        expected_session_epoch=expected_epoch,
+                        target_uid=target_uid,
+                        assist_task_id=assist_task_id,
+                        aavid=aavid,
+                        ad_id=ad_id,
+                        promotion_scene=promotion_scene,
+                        trigger=trigger,
+                        max_age_minutes=(
+                            _assist_updated_within_minutes_from_env()
+                            or _DEFAULT_ASSIST_UPDATED_WITHIN_MIN
+                        ),
+                    )
+                    if error:
+                        report_local_stop_task(
+                            task_uid,
+                            claim_token,
+                            "invalidated" if _stop_strategy_was_invalidated(error) else "failed",
+                            message=f"执行前复核未通过，未向千川提交：{error}",
+                        )
+                        continue
+                    cycle_state = stop_cycle_state(
+                        db,
+                        target_uid,
+                        assist_task_id,
+                        assist_row=latest_row,
+                    )
+                    if cycle_state.get("blocked"):
+                        already_completed = (
+                            cycle_state.get("reason") == "stop_already_completed"
+                        )
+                        report_local_stop_task(
+                            task_uid,
+                            claim_token,
+                            "succeeded" if already_completed else "failed",
+                            message=(
+                                "该调控任务已有成功停投流水，本次未重复执行"
+                                if already_completed
+                                else "调控任务已恢复，但尚未完成恢复后的新鲜采集，本卡未提交停投"
+                            ),
+                            result={
+                                "idempotent": already_completed,
+                                "control_cycle_key": cycle_state.get("cycle_key"),
+                                "cycle_reason": cycle_state.get("reason"),
+                            },
+                        )
+                        continue
+                    expected_cycle_key = str(task.get("control_cycle_key") or "")
+                    actual_cycle_key = str(cycle_state.get("cycle_key") or "")
+                    if (
+                        (expected_cycle_key and expected_cycle_key != actual_cycle_key)
+                        or (
+                            not expected_cycle_key
+                            and cycle_state.get("reason") == "resumed_cycle_ready"
+                        )
+                    ):
+                        report_local_stop_task(
+                            task_uid,
+                            claim_token,
+                            "failed",
+                            message="调控任务恢复周期已变化，本卡失效，未提交停投",
+                        )
+                        continue
+                    cfg = load_rule_regulation_config()
+                    svc = QianChuanRegulationStopService.from_rule_file_dict(cfg)
+                    from services.official_api_reconciliation import (
+                        resolve_stop_idempotency_key,
+                    )
+
+                    base_execution_uid = stop_cycle_execution_key(
+                        expected_owner,
+                        aavid,
+                        ad_id,
+                        assist_task_id,
+                        actual_cycle_key,
+                        stop_action,
+                    )
+                    execution_uid = resolve_stop_idempotency_key(
+                        base_execution_uid,
+                        allow_confirmed_failed_retry=True,
+                        db=db,
+                    )
+                    result = await svc.run(
+                        aavid=aavid_int,
+                        ad_id=ad_id_int,
+                        assist_task_id=assist_task_id,
+                        stop_action=stop_action,
+                        strategy_title=strategy_name,
+                        target_uid=target_uid,
+                        promotion_scene=promotion_scene,
+                        plan_system=latest_system,
+                        source_url=(
+                            (latest_target or {}).get("sanitized_page_url")
+                            or None
+                        ),
+                        reuse_session=False,
+                        close_session=False,
+                        execution_uid=execution_uid,
+                        reconciliation_task_uid=task_uid,
+                        control_cycle_key=actual_cycle_key,
+                        **({"submission_claim": {
+                            "account_username": expected_owner, "task_uid": task_uid,
+                            "claim_token": claim_token, "fencing_token": fence,
+                        }, "pre_submit_check": partial(
+                            _pre_submit_stop_check, db,
+                            expected_cycle_key=actual_cycle_key,
+                            original_strategy=original_strategy,
+                            expected_owner=expected_owner,
+                            expected_session_epoch=expected_epoch,
+                            target_uid=target_uid, assist_task_id=assist_task_id,
+                            aavid=aavid, ad_id=ad_id, promotion_scene=promotion_scene,
+                            trigger=trigger,
+                            max_age_minutes=(_assist_updated_within_minutes_from_env()
+                                             or _DEFAULT_ASSIST_UPDATED_WITHIN_MIN),
+                        )} if QIANCHUAN_BACKEND == "official_api" else {}),
+                    )
+                    if (result.step == "stop_preflight_blocked"
+                            and _stop_strategy_was_invalidated(result.detail)):
+                        report_local_stop_task(
+                            task_uid, claim_token, "invalidated",
+                            message=result.message,
+                            result={"reason": "strategy_invalidated", "submitted": False},
+                        )
+                        continue
+                    ended_at = _beijing_now_str()
+                    duration_ms = int((time.time() - started) * 1000)
+                    verifying_steps = {
+                        "submitting",
+                        "submitted",
+                        "verifying",
+                        "submitted_verifying",
+                    }
+                    run_status = (
+                        2
+                        if result.step
+                        in {"done_already_paused", "done_naturally_expired"}
+                        else -1
+                        if result.step in verifying_steps
+                        else 1
+                        if result.success
+                        else -1
+                    )
+                    row = latest_row or {}
+                    product_id, product_name = _product_fields_from_assist_row(
+                        db,
+                        row,
+                        target_uid,
+                    )
+                    trigger_snapshot = {
+                        "strategy_id": original_strategy.get("id"),
+                        "strategy_title": original_strategy.get("title"),
+                        "trigger_config": trigger,
+                        "evaluation": build_trigger_evaluation_snapshot_roi2_assist(
+                            trigger,
+                            row,
+                        ),
+                    }
+                    _insert_regulation_run(
+                        db,
+                        aavid=aavid,
+                        ad_id=ad_id,
+                        target_uid=target_uid,
+                        promotion_scene=promotion_scene,
+                        plan_system=latest_system,
+                        product_id=product_id,
+                        product_name=product_name,
+                        task_name=_task_name_from_assist_row(row),
+                        strategy_name=strategy_name,
+                        assist_task_id=assist_task_id,
+                        stop_action=stop_action,
+                        started_at=started_at,
+                        ended_at=ended_at,
+                        duration_ms=duration_ms,
+                        status=run_status,
+                        step=result.step,
+                        message=result.message,
+                        detail=(result.detail or "")[:8000],
+                        rule_full_json=_json_dumps(cfg),
+                        trigger_snapshot_json=_json_dumps(trigger_snapshot),
+                        query_snapshot_json=_json_dumps(
+                            task.get("query_snapshot") or {}
+                        ),
+                        headless=bool(result.headless),
+                        browser_headless_rule=bool(
+                            cfg.get("browser_headless", True)
+                        ),
+                        trigger_source="feishu_card_confirm",
+                        execution_uid=execution_uid,
+                        execution_state=(
+                            "submitted_verifying"
+                            if result.step in verifying_steps
+                            else "unknown_requires_review"
+                            if result.step == "unknown_requires_review"
+                            else ("confirmed_succeeded" if run_status in {1, 2} else "confirmed_failed")
+                        ),
+                    )
+                    report_local_stop_task(
+                        task_uid,
+                        claim_token,
+                        (
+                            "verifying"
+                            if result.step in verifying_steps
+                            else "naturally_expired"
+                            if result.step == "done_naturally_expired"
+                            else "unknown_requires_review"
+                            if result.step == "unknown_requires_review"
+                            else ("succeeded" if run_status in {1, 2} else "failed")
+                        ),
+                        message=result.message,
+                        detail=(result.detail or "")[:4000],
+                        result={
+                            "step": result.step,
+                            "stop_action": stop_action,
+                            "assist_task_id": assist_task_id,
+                            "control_cycle_key": actual_cycle_key,
+                        },
+                    )
+        except Exception:
+            logger.exception(
+                "[规则化停投] 飞书确认任务执行异常 task=%s",
+                task_uid,
+            )
+            report_local_stop_task(
+                task_uid,
+                claim_token,
+                "failed",
+                message="停投执行异常",
+                detail=traceback.format_exc()[:4000],
+            )
+        finally:
+            if svc is not None:
+                await svc.close()
+
+
+def _send_auto_stop_result_notification(
+    db: SQLiteStore,
+    *,
+    owner: str,
+    aavid: str,
+    account_name: str,
+    plan_name: str,
+    ad_id: str,
+    promotion_scene: str,
+    plan_system: str,
+    task_name: str,
+    assist_task_id: str,
+    stop_action: str,
+    success: bool,
+    message: str,
+    platform_status: str = "",
+    request_id: str = "",
+    submitted_at: str = "",
+    confirmed_at: str = "",
+    verification_duration_seconds: Any = None,
+    delivery_task_uid: str = "",
+    result_unknown: bool = False,
+) -> List[Dict[str, str]]:
+    from services.local_feishu_bridge import send_local_feishu_bound_card
+    from services.qianchuan_accounts import resolve_account_feishu_targets
+
+    scene = "推商品" if promotion_scene == "product" else "推直播"
+    system = "乘方" if plan_system == "chengfang" else "全域"
+    action = "结束调控" if stop_action == "delete" else "暂停调控"
+    naturally_expired = str(platform_status or "").upper() == "OFFLINE_TIME"
+    card = {
+        "config": {
+            "wide_screen_mode": True,
+            "enable_forward": False,
+        },
+        "header": {
+            "template": "grey" if naturally_expired else "orange" if result_unknown else "green" if success else "red",
+            "title": {
+                "tag": "plain_text",
+                "content": (
+                    f"千川调控任务已自然到期 · {system} · {scene}"
+                    if naturally_expired
+                    else f"千川自动停投结果无法确认 · {system} · {scene}"
+                    if result_unknown
+                    else f"千川自动停投{'成功' if success else '失败'} · {system} · {scene}"
+                ),
+            },
+        },
+        "elements": [
+            {
+                "tag": "div",
+                "text": {
+                    "tag": "plain_text",
+                    "content": "\n".join(
+                        [
+                            f"千川账户：{account_name or aavid}",
+                            f"账户ID：{aavid}",
+                            f"计划名称：{plan_name or '未命名计划'}",
+                            f"计划ID：{ad_id}",
+                            f"调控任务：{task_name or '未命名任务'}",
+                            f"调控任务ID：{assist_task_id}",
+                            f"动作：{action}",
+                            f"结果：{message}",
+                            f"千川最终状态：{platform_status or '未记录'}",
+                            f"request_id：{request_id or '未记录'}",
+                            f"提交时间：{submitted_at or '未记录'}",
+                            f"核验时间：{confirmed_at or '未记录'}",
+                            f"核验耗时：{verification_duration_seconds if verification_duration_seconds not in (None, '') else '未记录'}秒",
+                        ]
+                    ),
+                },
+            }
+        ],
+    }
+    targets = resolve_account_feishu_targets(
+        aavid,
+        owner_username=owner,
+        db=db,
+    )
+    # 结果通知只依赖飞书 REST 发信能力，不依赖卡片回调长连接在线。
+    # REST 临时失败时 LocalFeishuBridge 会把消息写入持久化 outbox 重试。
+    return send_local_feishu_bound_card(
+        card,
+        targets=targets or None,
+        require_connected=False,
+        task_uid=delivery_task_uid,
+        delivery_stage="terminal",
+    )
+
+
+def _send_auto_stop_submitted_notification(
+    db: SQLiteStore,
+    *,
+    owner: str,
+    aavid: str,
+    account_name: str,
+    plan_name: str,
+    ad_id: str,
+    promotion_scene: str,
+    plan_system: str,
+    task_name: str,
+    assist_task_id: str,
+    stop_action: str,
+    message: str,
+    delivery_task_uid: str = "",
+) -> None:
+    """Notify immediately after an automatic stop POST is accepted."""
+
+    from services.local_feishu_bridge import send_local_feishu_bound_card
+    from services.qianchuan_accounts import resolve_account_feishu_targets
+
+    scene = "推商品" if promotion_scene == "product" else "推直播"
+    system = "乘方" if plan_system == "chengfang" else "全域"
+    action = "结束调控" if stop_action == "delete" else "暂停调控"
+    card = {
+        "config": {"wide_screen_mode": True, "enable_forward": False},
+        "header": {
+            "template": "orange",
+            "title": {
+                "tag": "plain_text",
+                "content": f"千川自动停投 · {system} · {scene} · 已提交，正在核验",
+            },
+        },
+        "elements": [
+            {
+                "tag": "div",
+                "text": {
+                    "tag": "plain_text",
+                    "content": "\n".join(
+                        [
+                            f"千川账户：{account_name or aavid}",
+                            f"账户ID：{aavid}",
+                            f"计划名称：{plan_name or '未命名计划'}",
+                            f"计划ID：{ad_id}",
+                            f"调控任务：{task_name or '未命名任务'}",
+                            f"调控任务ID：{assist_task_id}",
+                            f"动作：{action}",
+                            f"当前状态：{message or '官方 API 已受理，正在查询平台最终状态'}",
+                        ]
+                    ),
+                },
+            }
+        ],
+    }
+    targets = resolve_account_feishu_targets(
+        aavid,
+        owner_username=owner,
+        db=db,
+    )
+    send_local_feishu_bound_card(
+        card,
+        targets=targets or None,
+        require_connected=False,
+        task_uid=delivery_task_uid,
+        delivery_stage="submitted",
+    )
+
+
+async def run_one_cycle(db: SQLiteStore, *, target_uids=None) -> None:
+    from services.operation_diagnostics import record
+    _log_sched = regulation_log_tag(scheduler=True)
+    await _process_approved_stop_tasks(db)
+    cfg = load_rule_regulation_config()
+    if not cfg.get("enabled"):
+        record("stop_scan_skipped", reason="rules_disabled")
+        logger.info("%s 未启用 enabled，跳过本轮", _log_sched)
+        return
+
+    from services.qianchuan_session import (
+        automation_session_ready,
+        current_session_owner,
+    )
+
+    cycle_owner = str(current_session_owner() or "").strip().casefold()
+    session_gate = automation_session_ready(cycle_owner)
+    if not cycle_owner or not session_gate.get("ready"):
+        record("stop_scan_skipped", reason="session_not_ready")
+        logger.warning(
+            "%s 千川主登录会话不可用，本轮自动停投已跳过",
+            _log_sched,
+        )
+        return
+    try:
+        cycle_session_epoch = int(session_gate.get("session_epoch") or 0)
+    except (TypeError, ValueError):
+        cycle_session_epoch = 0
+
+    period = str(cfg.get("trigger_query_period") or "1h").strip() or "1h"
+    strategies = cfg.get("strategies")
+    if not isinstance(strategies, list) or not strategies:
+        record("stop_scan_skipped", reason="no_strategies")
+        logger.warning("%s strategies 为空", _log_sched)
+        return
+
+    if target_uids is not None:
+        scope = {str(uid) for uid in target_uids}
+        strategies = [st for st in strategies if isinstance(st, dict) and str(st.get("target_uid") or "") in scope]
+        if not strategies:
+            return
+
+    rule_full_json = _json_dumps(cfg)
+
+    assist_uw_min = _assist_updated_within_minutes_from_env()
+    dash = DashboardApi()
+    resp = dash.get_roi2_assist_table_data(
+        sort_by="stat_cost_for_roi2_assist",
+        sort_order="desc",
+        page=1,
+        page_size=_DASHBOARD_PAGE_SIZE,
+        ad_delivery_type=0,
+        regulation_full_scan=True,
+        assist_updated_within_minutes=assist_uw_min,
+        **({"target_uids": sorted({str(st.get("target_uid") or "") for st in strategies})}
+           if target_uids is not None else {}),
+    )
+    if not resp.get("success"):
+        record("stop_scan_skipped", reason="candidate_query_failed", message=resp.get("message"))
+        logger.warning("%s get_roi2_assist_table_data 失败: %s", _log_sched, resp.get("message"))
+        return
+
+    rows: List[Dict[str, Any]] = resp.get("data") or []
+
+    # 追投白名单：白名单中的调控任务自动跳过停投
+    whitelist = cfg.get("whitelist_assist_ids") or []
+    if whitelist:
+        whitelist_set = set(str(x).strip() for x in whitelist if str(x).strip())
+        filtered_rows: List[Dict[str, Any]] = []
+        skipped_ids: List[str] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            _aid = str(row.get("assist_task_id") or "").strip()
+            if _aid in whitelist_set:
+                skipped_ids.append(_aid)
+                continue
+            filtered_rows.append(row)
+        if skipped_ids:
+            logger.info(
+                "%s 追投白名单过滤：跳过 %s 个调控任务 (%s)",
+                _log_sched,
+                len(skipped_ids),
+                ",".join(skipped_ids),
+            )
+        rows = filtered_rows
+
+    query_at = _beijing_now_str()
+    from services.operation_diagnostics import record
+    record("stop_scan", candidate_count=len(rows), strategy_count=len(strategies),
+           reason="no_candidates" if not rows else "evaluating", query_at=query_at)
+    assist_sort_by = resp.get("sortBy") or "stat_cost_for_roi2_assist"
+
+    max_p = MAX_STRATEGY_PARALLEL
+    try:
+        e = os.environ.get("REGULATION_STRATEGY_PARALLEL", "").strip()
+        if e.isdigit():
+            max_p = max(1, min(10, int(e)))
+    except Exception:
+        pass
+
+    _uw_log = f"updated_at近{assist_uw_min}分钟" if assist_uw_min else "updated_at近1天"
+    logger.info(
+        "%s 配置周期=%s 调控任务(ad_delivery_type=0,%s)=%s 策略数=%s 并行=%s",
+        _log_sched,
+        period,
+        _uw_log,
+        len(rows),
+        len(strategies),
+        min(max_p, len(strategies)),
+    )
+
+    sem = asyncio.Semaphore(max_p)
+    browser_rule = bool(cfg.get("browser_headless", True))
+    enabled_targets = (
+        schedulable_promotion_targets(db=db)
+        if hasattr(db, "config")
+        else db.select(
+            "promotion_target",
+            where="enabled=1 AND capacity_state='active'",
+        )
+    )
+
+    async def process_strategy(st: Dict[str, Any]) -> None:
+        async with sem:
+            validation_error = str(st.get("validation_error") or "").strip()
+            if validation_error:
+                logger.warning(
+                    "%s 策略已暂停：%s",
+                    regulation_log_tag(
+                        strategy_title=str(st.get("title") or st.get("id") or "?")[:64]
+                    ),
+                    validation_error,
+                )
+                return
+            trigger = st.get("trigger") or {}
+            if not isinstance(trigger, dict):
+                logger.warning("%s 策略 trigger 非法，跳过", _log_sched)
+                return
+
+            st_label = str(st.get("title") or st.get("id") or "?")[:64]
+            _tag = regulation_log_tag(strategy_title=st_label)
+            stop_action = str(st.get("regulation_stop_action") or "pause").strip().lower()
+            if stop_action not in ("pause", "delete"):
+                stop_action = "pause"
+            action_mode = str(
+                st.get("action_mode") or "auto_execute"
+            ).strip().lower()
+            if action_mode not in {"card_confirm", "auto_execute"}:
+                action_mode = "auto_execute"
+            strategy_target_uid = str(st.get("target_uid") or "").strip()
+            if not strategy_target_uid:
+                logger.warning("%s 未选择监控计划，已安全跳过", _tag)
+                return
+            strategy_target = next(
+                (
+                    target
+                    for target in enabled_targets
+                    if str(target.get("target_uid") or "") == strategy_target_uid
+                ),
+                None,
+            )
+            if not isinstance(strategy_target, dict):
+                logger.warning("%s 监控计划已停用或不可调度，已安全跳过", _tag)
+                return
+            strategy_account_uid = str(st.get("account_uid") or "").strip()
+            strategy_aavid = str(st.get("aavid") or "").strip()
+            target_account_uid = str(strategy_target.get("account_uid") or "").strip()
+            target_aavid = str(strategy_target.get("aadvid") or "").strip()
+            if (
+                (strategy_account_uid and strategy_account_uid != target_account_uid)
+                or (strategy_aavid and strategy_aavid != target_aavid)
+            ):
+                logger.warning("%s 账户与监控计划归属不一致，已安全跳过", _tag)
+                return
+
+            hit_rows: List[Dict[str, Any]] = []
+            evaluated_rows = 0
+            missing_metrics: Dict[str, int] = {}
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                if (
+                    strategy_target_uid
+                    and str(row.get("target_uid") or "") != strategy_target_uid
+                ):
+                    continue
+                evaluated_rows += 1
+                evaluation = build_trigger_evaluation_snapshot_roi2_assist(
+                    trigger, row
+                )
+                if evaluated_rows <= 30:
+                    record("stop_evaluation", target_uid=row.get("target_uid"), task_id=row.get("assist_task_id"),
+                           strategy_id=st.get("id"), evaluation=evaluation,
+                           metrics_observed_at=row.get("metrics_observed_at"), platform_status=row.get("ad_delivery_name"))
+                for group in evaluation.get("groups") or []:
+                    for condition in group.get("conditions") or []:
+                        if condition.get("actual") is None:
+                            metric = str(condition.get("metric") or "unknown")
+                            missing_metrics[metric] = missing_metrics.get(metric, 0) + 1
+                logger.debug(
+                    "%s 调控任务评估 assist_task_id=%s evaluation=%s",
+                    _tag,
+                    row.get("assist_task_id"),
+                    _json_dumps(evaluation),
+                )
+                if bool(evaluation.get("passed")):
+                    hit_rows.append(row)
+
+            logger.info(
+                "%s 评估调控任务=%s 命中=%s 指标缺失=%s",
+                _tag,
+                evaluated_rows,
+                len(hit_rows),
+                missing_metrics or "无",
+            )
+            if not hit_rows:
+                record("stop_summary", strategy_id=st.get("id"), candidate_count=evaluated_rows,
+                       hit_count=0, missing_metrics=missing_metrics, reason="not_hit")
+                return
+            record("stop_summary", strategy_id=st.get("id"), candidate_count=evaluated_rows, hit_count=len(hit_rows))
+            if _shadow_mode_enabled():
+                logger.warning(
+                    "%s 影子模式命中%s个调控任务，仅记录判断，不发飞书卡片且不执行停投 task_ids=%s",
+                    _tag,
+                    len(hit_rows),
+                    ",".join(
+                        str(row.get("assist_task_id") or "")
+                        for row in hit_rows[:20]
+                    ),
+                )
+                return
+
+            svc = QianChuanRegulationStopService.from_rule_file_dict(cfg)
+            headless_cfg = browser_rule
+            try:
+                for row in hit_rows:
+                    assist_raw = row.get("assist_task_id")
+                    assist_task_id = str(assist_raw).strip() if assist_raw is not None else ""
+                    task_name = _task_name_from_assist_row(row)
+                    aavid_raw = row.get("aadvid")
+                    aavid = str(aavid_raw).strip() if aavid_raw is not None else ""
+                    target_uid = str(row.get("target_uid") or "legacy_unscoped").strip()
+                    if not target_uid or target_uid == "legacy_unscoped":
+                        logger.warning(
+                            "%s 旧版未归属调控任务仅供查看，不参与自动停投 "
+                            "assist_task_id=%s",
+                            _tag,
+                            assist_task_id,
+                        )
+                        continue
+                    promotion_scene = str(row.get("promotion_scene") or "live").strip()
+                    ad_id = str(row.get("ad_id") or "").strip()
+                    target = db.select_one(
+                        "promotion_target",
+                        where={"target_uid": target_uid},
+                    ) or {}
+                    account = db.select_one(
+                        "qianchuan_account",
+                        where={"account_uid": str(target.get("account_uid") or "")},
+                    ) or {}
+                    target_plan_system = normalize_plan_system(
+                        target.get("plan_system") or "unknown"
+                    )
+                    row_plan_system = normalize_plan_system(
+                        row.get("plan_system") or "unknown"
+                    )
+                    plan_system = (
+                        target_plan_system
+                        if target_plan_system != "unknown"
+                        else row_plan_system
+                    )
+                    product_id, product_name = _product_fields_from_assist_row(
+                        db, row, target_uid
+                    )
+
+                    eval_snap = build_trigger_evaluation_snapshot_roi2_assist(trigger, row)
+                    trigger_snap = _json_dumps(
+                        {
+                            "strategy_id": st.get("id"),
+                            "strategy_title": st.get("title"),
+                            "trigger_config": trigger,
+                            "evaluation": eval_snap,
+                        }
+                    )
+                    query_snap = _json_dumps(
+                        {
+                            "data_source": "pmc_roi2_assist_task",
+                            "trigger_query_period": period,
+                            "assist_updated_within_minutes": assist_uw_min,
+                            "sort_by": assist_sort_by,
+                            "query_at": query_at,
+                            "assist_task_total": resp.get("total"),
+                            "assist_row": row,
+                        }
+                    )
+
+                    if not assist_task_id:
+                        now = _beijing_now_str()
+                        _insert_regulation_run(
+                            db,
+                            aavid=aavid or "",
+                            ad_id="",
+                            target_uid=target_uid,
+                            promotion_scene=promotion_scene,
+                            plan_system=plan_system,
+                            product_id=product_id,
+                            product_name=product_name,
+                            task_name=task_name,
+                            strategy_name=st_label,
+                            assist_task_id="",
+                            stop_action=stop_action,
+                            started_at=now,
+                            ended_at=now,
+                            duration_ms=0,
+                            status=-1,
+                            step="validate",
+                            message="调控任务行缺少 assist_task_id，无法停投",
+                            detail="",
+                            rule_full_json=rule_full_json,
+                            trigger_snapshot_json=trigger_snap,
+                            query_snapshot_json=query_snap,
+                            headless=headless_cfg,
+                            browser_headless_rule=browser_rule,
+                        )
+                        logger.info("%s 跳过：无 assist_task_id", _tag)
+                        continue
+
+                    task_lock = await _lock_for_assist_task(assist_task_id, target_uid)
+                    async with task_lock:
+                        cycle_state = stop_cycle_state(
+                            db,
+                            target_uid,
+                            assist_task_id,
+                            assist_row=row,
+                        )
+                        if cycle_state.get("blocked"):
+                            record("stop_skipped", target_uid=target_uid, task_id=assist_task_id,
+                                   reason=cycle_state.get("reason"), category="cycle_lock")
+                            logger.info(
+                                "%s 当前调控周期不可再停投，幂等跳过 "
+                                "reason=%s target=%s assist_task_id=%s",
+                                _tag,
+                                cycle_state.get("reason"),
+                                target_uid,
+                                assist_task_id,
+                            )
+                            continue
+                        control_cycle_key = str(
+                            cycle_state.get("cycle_key") or ""
+                        )
+                        if target_uid != "legacy_unscoped":
+                            target_matches = (
+                                bool(target)
+                                and bool(account)
+                                and bool(account.get("enabled"))
+                                and bool(target.get("enabled"))
+                                and bool(target.get("monitor_eligible"))
+                                and bool(target.get("stop_eligible"))
+                                and str(target.get("aadvid") or "") == aavid
+                                and str(target.get("ad_id") or "") == ad_id
+                                and str(target.get("promotion_scene") or "live")
+                                == promotion_scene
+                                and (
+                                    not strategy_account_uid
+                                    or str(target.get("account_uid") or "")
+                                    == strategy_account_uid
+                                )
+                                and (
+                                    not strategy_aavid
+                                    or str(target.get("aadvid") or "")
+                                    == strategy_aavid
+                                )
+                                and (
+                                    row_plan_system == "unknown"
+                                    or row_plan_system == target_plan_system
+                                )
+                            )
+                            if not target_matches:
+                                record("stop_skipped", target_uid=target_uid, task_id=assist_task_id,
+                                       reason="target_mismatch")
+                                now = _beijing_now_str()
+                                _insert_regulation_run(
+                                    db,
+                                    aavid=aavid or "",
+                                    ad_id=ad_id,
+                                    target_uid=target_uid,
+                                    promotion_scene=promotion_scene,
+                                    plan_system=plan_system,
+                                    product_id=product_id,
+                                    product_name=product_name,
+                                    task_name=task_name,
+                                    strategy_name=st_label,
+                                    assist_task_id=assist_task_id,
+                                    stop_action=stop_action,
+                                    started_at=now,
+                                    ended_at=now,
+                                    duration_ms=0,
+                                    status=-1,
+                                    step="target_mismatch",
+                                    message="调控任务与监控计划不匹配或计划已停用，已阻止停投",
+                                    detail="",
+                                    rule_full_json=rule_full_json,
+                                    trigger_snapshot_json=trigger_snap,
+                                    query_snapshot_json=query_snap,
+                                    headless=headless_cfg,
+                                    browser_headless_rule=browser_rule,
+                                )
+                                continue
+                            if plan_system == "unknown":
+                                logger.warning(
+                                    "%s 计划体系尚未识别，本轮不执行自动停投 "
+                                    "target=%s assist_task_id=%s",
+                                    _tag,
+                                    target_uid,
+                                    assist_task_id,
+                                )
+                                continue
+                            assist_ready, assist_error = (
+                                _target_assist_sync_ready(
+                                    target,
+                                    max_age_minutes=(
+                                        assist_uw_min
+                                        or _DEFAULT_ASSIST_UPDATED_WITHIN_MIN
+                                    ),
+                                )
+                            )
+                            if not assist_ready:
+                                record("stop_skipped", target_uid=target_uid, task_id=assist_task_id,
+                                       reason=assist_error, category="metrics_unavailable")
+                                logger.warning(
+                                    "%s 当前计划的调控任务同步状态不可用，本轮不执行：%s "
+                                    "target=%s assist_task_id=%s",
+                                    _tag,
+                                    assist_error,
+                                    target_uid,
+                                    assist_task_id,
+                                )
+                                continue
+                            capability_ok, capability_error = (
+                                check_target_capability(
+                                    target,
+                                    action="regulation",
+                                    promotion_scene=promotion_scene,
+                                    plan_system=plan_system,
+                                )
+                            )
+                            if not capability_ok:
+                                record("stop_skipped", target_uid=target_uid, task_id=assist_task_id,
+                                       reason=capability_error, category="capability_blocked")
+                                logger.warning(
+                                    "%s 当前计划的停投能力证据无效，本轮不执行：%s "
+                                    "target=%s assist_task_id=%s",
+                                    _tag,
+                                    capability_error,
+                                    target_uid,
+                                    assist_task_id,
+                                )
+                                continue
+                        if not ad_id:
+                            now = _beijing_now_str()
+                            _insert_regulation_run(
+                                db,
+                                aavid=aavid or "",
+                                ad_id="",
+                                target_uid=target_uid,
+                                promotion_scene=promotion_scene,
+                                plan_system=plan_system,
+                                product_id=product_id,
+                                product_name=product_name,
+                                task_name=task_name,
+                                strategy_name=st_label,
+                                assist_task_id=assist_task_id,
+                                stop_action=stop_action,
+                                started_at=now,
+                                ended_at=now,
+                                duration_ms=0,
+                                status=-1,
+                                step="resolve_ad_id",
+                                message="pmc_ad_detail_basic 中无该 aadvid 对应的 ad_id",
+                                detail="",
+                                rule_full_json=rule_full_json,
+                                trigger_snapshot_json=trigger_snap,
+                                query_snapshot_json=query_snap,
+                                headless=headless_cfg,
+                                browser_headless_rule=browser_rule,
+                            )
+                            continue
+
+                        try:
+                            aavid_int = int(str(aavid_raw).strip())
+                            ad_id_int = int(str(ad_id).strip())
+                        except (TypeError, ValueError):
+                            now = _beijing_now_str()
+                            _insert_regulation_run(
+                                db,
+                                aavid=aavid or "",
+                                ad_id=str(ad_id),
+                                target_uid=target_uid,
+                                promotion_scene=promotion_scene,
+                                plan_system=plan_system,
+                                product_id=product_id,
+                                product_name=product_name,
+                                task_name=task_name,
+                                strategy_name=st_label,
+                                assist_task_id=assist_task_id,
+                                stop_action=stop_action,
+                                started_at=now,
+                                ended_at=now,
+                                duration_ms=0,
+                                status=-1,
+                                step="validate",
+                                message="aavid 或 ad_id 无法转为整数",
+                                detail="",
+                                rule_full_json=rule_full_json,
+                                trigger_snapshot_json=trigger_snap,
+                                query_snapshot_json=query_snap,
+                                headless=headless_cfg,
+                                browser_headless_rule=browser_rule,
+                            )
+                            continue
+
+                        if action_mode == "card_confirm":
+                            from services.local_feishu_bridge import (
+                                create_local_stop_task,
+                            )
+
+                            account = db.select_one(
+                                "qianchuan_account",
+                                where={
+                                    "account_uid": str(
+                                        target.get("account_uid") or ""
+                                    )
+                                },
+                            ) or {}
+                            strategy_snapshot = _stop_strategy_snapshot(st)
+                            strategy_hash = hashlib.sha256(
+                                _json_dumps(strategy_snapshot).encode("utf-8")
+                            ).hexdigest()
+                            card_result = create_local_stop_task(
+                                {
+                                    "action_type": "stop",
+                                    "aavid": aavid,
+                                    "ad_id": ad_id,
+                                    "target_uid": target_uid,
+                                    "account_name": account.get("account_name")
+                                    or "",
+                                    "plan_name": target.get("plan_name") or "",
+                                    "promotion_scene": promotion_scene,
+                                    "plan_system": plan_system,
+                                    "assist_task_id": assist_task_id,
+                                    "assist_task_name": task_name,
+                                    "strategy_id": str(st.get("id") or ""),
+                                    "strategy_name": st_label,
+                                    "strategy_hash": strategy_hash,
+                                    "rule_snapshot": strategy_snapshot,
+                                    "trigger": trigger,
+                                    "trigger_snapshot": {
+                                        "strategy_id": st.get("id"),
+                                        "strategy_title": st.get("title"),
+                                        "trigger_config": trigger,
+                                        "evaluation": eval_snap,
+                                    },
+                                    "metrics_snapshot": row,
+                                    "query_snapshot": json.loads(query_snap),
+                                    "regulation_stop_action": stop_action,
+                                    "control_cycle_key": control_cycle_key,
+                                }
+                            )
+                            if card_result.get("success"):
+                                logger.info(
+                                    "%s 停投确认卡片%s target=%s assist_task_id=%s delivery_state=%s",
+                                    _tag,
+                                    "已去重" if card_result.get("duplicate") else "已入队",
+                                    target_uid,
+                                    assist_task_id,
+                                )
+                            else:
+                                logger.warning(
+                                    "%s 停投确认卡片发送失败：%s",
+                                    _tag,
+                                    card_result.get("message"),
+                                )
+                            continue
+
+                        started_at = _beijing_now_str()
+                        t0 = time.time()
+                        try:
+                            async with exclusive_browser_operation(
+                                f"停投:{target_uid}:{assist_task_id}",
+                                priority=20,
+                            ):
+                                (
+                                    latest_target,
+                                    latest_row,
+                                    latest_plan_system,
+                                    revalidate_error,
+                                ) = _revalidate_stop_candidate(
+                                    db,
+                                    original_strategy=st,
+                                    expected_owner=cycle_owner,
+                                    expected_session_epoch=cycle_session_epoch,
+                                    target_uid=target_uid,
+                                    assist_task_id=assist_task_id,
+                                    aavid=aavid,
+                                    ad_id=ad_id,
+                                    promotion_scene=promotion_scene,
+                                    trigger=trigger,
+                                    max_age_minutes=(
+                                        assist_uw_min
+                                        or _DEFAULT_ASSIST_UPDATED_WITHIN_MIN
+                                    ),
+                                )
+                                if revalidate_error:
+                                    record("stop_skipped", target_uid=target_uid, task_id=assist_task_id,
+                                           reason=revalidate_error, category="final_preflight")
+                                    logger.warning(
+                                        "%s 取得浏览器锁后复核失败，已取消停投：%s "
+                                        "target=%s assist_task_id=%s",
+                                        _tag,
+                                        revalidate_error,
+                                        target_uid,
+                                        assist_task_id,
+                                    )
+                                    continue
+                                latest_cycle_state = stop_cycle_state(
+                                    db,
+                                    target_uid,
+                                    assist_task_id,
+                                    (card_result.get("data") or {}).get("delivery_state", "unrecorded"),
+                                    assist_row=latest_row,
+                                )
+                                if latest_cycle_state.get("blocked"):
+                                    continue
+                                control_cycle_key = str(
+                                    latest_cycle_state.get("cycle_key") or ""
+                                )
+                                from services.qianchuan_session import (
+                                    automation_session_ready,
+                                )
+
+                                session_gate = automation_session_ready()
+                                if not session_gate.get("ready"):
+                                    logger.warning(
+                                        "%s 千川主登录会话不可用，全部账户自动停投已暂停：%s",
+                                        _tag,
+                                        session_gate.get("message") or "请重新登录",
+                                    )
+                                    continue
+                                target = latest_target or {}
+                                row = latest_row or {}
+                                plan_system = latest_plan_system
+                                task_name = _task_name_from_assist_row(row)
+                                product_id, product_name = (
+                                    _product_fields_from_assist_row(
+                                        db,
+                                        row,
+                                        target_uid,
+                                    )
+                                )
+                                eval_snap = (
+                                    build_trigger_evaluation_snapshot_roi2_assist(
+                                        trigger,
+                                        row,
+                                    )
+                                )
+                                trigger_snap = _json_dumps(
+                                    {
+                                        "strategy_id": st.get("id"),
+                                        "strategy_title": st.get("title"),
+                                        "trigger_config": trigger,
+                                        "evaluation": eval_snap,
+                                    }
+                                )
+                                execution_uid = stop_cycle_execution_key(
+                                    cycle_owner,
+                                    aavid,
+                                    ad_id,
+                                    assist_task_id,
+                                    control_cycle_key,
+                                    stop_action,
+                                )
+                                result = await svc.run(
+                                    aavid=aavid_int,
+                                    ad_id=ad_id_int,
+                                    assist_task_id=assist_task_id,
+                                    stop_action=stop_action,
+                                    strategy_title=st_label,
+                                    target_uid=target_uid,
+                                    promotion_scene=promotion_scene,
+                                    plan_system=plan_system,
+                                    source_url=target.get("sanitized_page_url") or None,
+                                    reuse_session=False,
+                                    close_session=False,
+                                    execution_uid=execution_uid,
+                                    reconciliation_task_uid=execution_uid,
+                                    control_cycle_key=control_cycle_key,
+                                    **({"pre_submit_check": partial(
+                                        _pre_submit_stop_check, db,
+                                        expected_cycle_key=control_cycle_key,
+                                        original_strategy=st,
+                                        expected_owner=cycle_owner,
+                                        expected_session_epoch=cycle_session_epoch,
+                                        target_uid=target_uid, assist_task_id=assist_task_id,
+                                        aavid=aavid, ad_id=ad_id,
+                                        promotion_scene=promotion_scene, trigger=trigger,
+                                        max_age_minutes=(assist_uw_min or _DEFAULT_ASSIST_UPDATED_WITHIN_MIN),
+                                    )} if QIANCHUAN_BACKEND == "official_api" else {}),
+                                )
+                                if result.step in {
+                                    "submitting",
+                                    "submitted",
+                                    "verifying",
+                                }:
+                                    logger.info(
+                                        "%s 同周期停投已在核验，本策略不重复提交 "
+                                        "target=%s assist_task_id=%s",
+                                        _tag,
+                                        target_uid,
+                                        assist_task_id,
+                                    )
+                                    continue
+                        except Exception:
+                            ended_at = _beijing_now_str()
+                            dur = int((time.time() - t0) * 1000)
+                            _insert_regulation_run(
+                                db,
+                                aavid=str(aavid_int),
+                                ad_id=str(ad_id_int),
+                                target_uid=target_uid,
+                                promotion_scene=promotion_scene,
+                                plan_system=plan_system,
+                                product_id=product_id,
+                                product_name=product_name,
+                                task_name=task_name,
+                                strategy_name=st_label,
+                                assist_task_id=assist_task_id,
+                                stop_action=stop_action,
+                                started_at=started_at,
+                                ended_at=ended_at,
+                                duration_ms=dur,
+                                status=-1,
+                                step="exception",
+                                message="run 异常",
+                                detail=traceback.format_exc()[:8000],
+                                rule_full_json=rule_full_json,
+                                trigger_snapshot_json=trigger_snap,
+                                query_snapshot_json=query_snap,
+                                headless=headless_cfg,
+                                browser_headless_rule=browser_rule,
+                            )
+                            logger.exception("%s run 异常 assist_task_id=%s", _tag, assist_task_id)
+                            continue
+
+                        ended_at = _beijing_now_str()
+                        dur = int((time.time() - t0) * 1000)
+                        verifying_steps = {
+                            "submitting",
+                            "submitted",
+                            "verifying",
+                            "submitted_verifying",
+                        }
+                        if result.step in {
+                            "done_already_paused",
+                            "done_naturally_expired",
+                        }:
+                            st_ok = 2
+                        elif result.step in verifying_steps:
+                            st_ok = -1
+                        elif result.success:
+                            st_ok = 1
+                        else:
+                            st_ok = -1
+                        if result.step in {
+                            "done_already_paused",
+                            "done_naturally_expired",
+                        } or not result.success:
+                            detail = (result.detail or "")[:8000]
+                        else:
+                            detail = ""
+                        _insert_regulation_run(
+                            db,
+                            aavid=str(result.aavid or aavid_int),
+                            ad_id=str(result.ad_id or ad_id_int),
+                            target_uid=target_uid,
+                            promotion_scene=promotion_scene,
+                            plan_system=plan_system,
+                            product_id=product_id,
+                            product_name=product_name,
+                            task_name=task_name,
+                            strategy_name=st_label,
+                            assist_task_id=str(result.assist_task_id or assist_task_id),
+                            stop_action=str(result.stop_action or stop_action),
+                            started_at=started_at,
+                            ended_at=ended_at,
+                            duration_ms=dur,
+                            status=st_ok,
+                            step=result.step,
+                            message=result.message,
+                            detail=detail,
+                            rule_full_json=rule_full_json,
+                            trigger_snapshot_json=trigger_snap,
+                            query_snapshot_json=query_snap,
+                            headless=bool(result.headless),
+                            browser_headless_rule=browser_rule,
+                            execution_uid=execution_uid,
+                            execution_state=(
+                                "submitted_verifying"
+                                if result.step in verifying_steps
+                                else "unknown_requires_review"
+                                if result.step == "unknown_requires_review"
+                                else ("confirmed_succeeded" if st_ok in {1, 2} else "confirmed_failed")
+                            ),
+                        )
+                        logger.info(
+                            "%s assist_task_id=%s success=%s step=%s",
+                            _tag,
+                            assist_task_id,
+                            result.success,
+                            result.step,
+                        )
+                        if result.step == "submitted_verifying":
+                            try:
+                                account_row = db.select_one(
+                                    "qianchuan_account",
+                                    where={
+                                        "account_uid": str(
+                                            target.get("account_uid") or ""
+                                        )
+                                    },
+                                ) or {}
+                                await asyncio.to_thread(
+                                    _send_auto_stop_submitted_notification,
+                                    db,
+                                    owner=cycle_owner,
+                                    aavid=aavid,
+                                    account_name=str(
+                                        account_row.get("account_name") or ""
+                                    ),
+                                    plan_name=str(target.get("plan_name") or ""),
+                                    ad_id=ad_id,
+                                    promotion_scene=promotion_scene,
+                                    plan_system=plan_system,
+                                    task_name=task_name,
+                                    assist_task_id=assist_task_id,
+                                    stop_action=stop_action,
+                                    message=result.message,
+                                    delivery_task_uid=execution_uid,
+                                )
+                            except Exception as notify_error:
+                                logger.warning(
+                                    "%s 自动停投提交状态通知发送失败：%s",
+                                    _tag,
+                                    notify_error,
+                                )
+                            continue
+                        try:
+                            account_row = db.select_one(
+                                "qianchuan_account",
+                                where={
+                                    "account_uid": str(
+                                        target.get("account_uid") or ""
+                                    )
+                                },
+                            ) or {}
+                            await asyncio.to_thread(
+                                _send_auto_stop_result_notification,
+                                db,
+                                owner=cycle_owner,
+                                aavid=aavid,
+                                account_name=str(
+                                    account_row.get("account_name") or ""
+                                ),
+                                plan_name=str(
+                                    target.get("plan_name") or ""
+                                ),
+                                ad_id=ad_id,
+                                promotion_scene=promotion_scene,
+                                plan_system=plan_system,
+                                task_name=task_name,
+                                assist_task_id=assist_task_id,
+                                stop_action=stop_action,
+                                success=st_ok in {1, 2},
+                                message=result.message,
+                            )
+                        except Exception as notify_error:
+                            logger.warning(
+                                "%s 自动停投结果通知发送失败：%s",
+                                _tag,
+                                notify_error,
+                            )
+            finally:
+                await svc.close()
+
+    await asyncio.gather(*(process_strategy(st) for st in strategies))
+
+
+def _interval_sec() -> int:
+    try:
+        e = os.environ.get("REGULATION_RULE_INTERVAL_SEC", "").strip()
+        if e.isdigit():
+            return max(60, int(e))
+    except Exception:
+        pass
+    return DEFAULT_INTERVAL_SEC
+
+
+def request_regulation_rule_evaluation(reason: str = "", *, target_uids=None) -> bool:
+    """Request one immediate rule pass; repeated requests collapse safely."""
+    if not _TARGET_WAKE.request(target_uids):
+        return False
+    logger.debug(
+        "%s 收到即时复核请求 reason=%s",
+        regulation_log_tag(scheduler=True),
+        str(reason or "manual"),
+    )
+    return True
+
+
+async def main_loop(interval_sec: Optional[int] = None) -> None:
+    sec = int(interval_sec) if interval_sec is not None else _interval_sec()
+    init_sqlite_schema()
+    db = SQLiteStore()
+    logger.info(
+        "%s 启动，间隔 %ss，版本 %s",
+        regulation_log_tag(scheduler=True),
+        sec,
+        CURRENT_VERSION,
+    )
+    next_rule_cycle_at = 0.0
+    while not _RUNNER_STOP.is_set():
+        try:
+            full_scan = time.monotonic() >= next_rule_cycle_at
+            if full_scan or (_RUNNER_WAKE.is_set() and _TARGET_WAKE.remaining() <= 0):
+                ready, scope = _TARGET_WAKE.take(full_scan=full_scan)
+                if full_scan:
+                    next_rule_cycle_at = time.monotonic() + max(60, int(sec))
+                if ready:
+                    from services.operation_diagnostics import record
+                    record("stop_scan_started", full_scan=full_scan, target_uids=scope, interval_seconds=sec)
+                    await run_one_cycle(db, target_uids=scope)
+                    record("stop_scan_finished", target_uids=scope)
+            else:
+                # 卡片点击只负责本地入队；独立短轮询让确认停投不必等待
+                # 下一次十分钟规则扫描。
+                await _process_approved_stop_tasks(db)
+        except Exception:
+            logger.exception("%s 本轮未捕获异常", regulation_log_tag(scheduler=True))
+        await asyncio.to_thread(_RUNNER_STOP.wait, 3)
+
+
+def _gui_background_target() -> None:
+    try:
+        asyncio.run(main_loop())
+    except Exception:
+        logger.exception("%s 后台线程异常退出", regulation_log_tag(scheduler=True))
+
+
+def start_regulation_rule_runner_background_thread() -> threading.Thread:
+    global _RUNNER_THREAD
+    with _RUNNER_LOCK:
+        if _RUNNER_THREAD is not None and _RUNNER_THREAD.is_alive():
+            return _RUNNER_THREAD
+        _RUNNER_STOP.clear()
+        _RUNNER_THREAD = threading.Thread(
+            target=_gui_background_target,
+            name="regulation-rule-runner",
+            daemon=True,
+        )
+        _RUNNER_THREAD.start()
+    logger.info(
+        "%s 后台线程已启动（默认间隔 %ss，环境变量 REGULATION_RULE_INTERVAL_SEC 可覆盖，最低 60s）",
+        regulation_log_tag(scheduler=True),
+        _interval_sec(),
+    )
+    return _RUNNER_THREAD
+
+
+def stop_regulation_rule_runner_background_thread(timeout: float = 8.0) -> None:
+    global _RUNNER_THREAD
+    _RUNNER_STOP.set()
+    _RUNNER_WAKE.set()
+    with _RUNNER_LOCK:
+        thread = _RUNNER_THREAD
+    if thread and thread.is_alive() and thread is not threading.current_thread():
+        thread.join(timeout=max(0.1, float(timeout)))
+    if thread is None or not thread.is_alive():
+        with _RUNNER_LOCK:
+            if _RUNNER_THREAD is thread:
+                _RUNNER_THREAD = None
+
+
+def main() -> None:
+    asyncio.run(main_loop())
+
+
+if __name__ == "__main__":
+    main()

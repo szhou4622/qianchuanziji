@@ -1,0 +1,28 @@
+[project]
+name = "qianchuan-promotion-crawl"
+version = "1.0.0a1"
+description = "千川工具生产版 V1A 可信只读采集与规则模拟"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "auto-py-to-exe>=2.50.0",
+    "baseopensdk",
+    "certifi>=2025.1.31",
+    "lark-oapi==1.7.1",
+    "keyring>=25.6.0; sys_platform == 'darwin'",
+    "pillow>=12.1.1",
+    "playwright>=1.58.0",
+    "psutil>=7.2.2",
+    "pymysql>=1.1.2",
+    "pystray>=0.19.5",
+    "python-dotenv>=1.2.2",
+    "pywebview>=6.1",
+    "pywin32>=311; sys_platform == 'win32'",
+    "screeninfo>=0.8.1",
+]
+
+[project.scripts]
+qcsckp-v1a = "desktop_v1a:main"
+
+[tool.uv.sources]
+baseopensdk = { url = "https://lf3-static.bytednsdoc.com/obj/eden-cn/lmeh7phbozvhoz/base-open-sdk/baseopensdk-0.0.13-py3-none-any.whl" }

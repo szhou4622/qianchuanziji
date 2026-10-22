@@ -1,0 +1,628 @@
+"""使用千川官方 API 刷新现有 v0.1.46 账户与四类计划目录。"""
+
+from __future__ import annotations
+
+import json
+import threading
+from datetime import datetime
+from typing import Any, Optional
+
+from api.promotion_targets import (
+    get_promotion_target,
+    list_promotion_targets,
+    upsert_promotion_target,
+)
+from services.qianchuan_accounts import (
+    _owner_key,
+    ensure_qianchuan_account,
+    get_qianchuan_account,
+    list_qianchuan_accounts,
+)
+from services.qianchuan_catalog import (
+    catalog_sync_status,
+    finalize_catalog_sync,
+    mark_catalog_sync_progress,
+    mark_catalog_sync_started,
+)
+from services.qianchuan_open_api.errors import OfficialApiNotConfigured, CollectionCancelledError, CollectionDeadlineExceeded
+from services.qianchuan_open_api.collection_context import CollectionContext, current_collection_context, use_collection_context
+from services.qianchuan_open_api.token_provider import (
+    _authorization_context, get_authorization_identity, authorization_identity_guard, AuthorizationContextChanged,
+)
+from services import collection_lifecycle
+from services.qianchuan_open_api.runtime import get_official_api_service
+from utils.sqlite_store import SQLiteStore, init_sqlite_schema
+
+
+_LOCK = threading.Lock()
+_THREAD: Optional[threading.Thread] = None
+_PENDING_ACCOUNT_UIDS: set[str] = set()
+_PENDING_ALL = False
+_SCHEDULER_LOCK = threading.Lock()
+_SCHEDULER_THREAD: Optional[threading.Thread] = None
+_SCHEDULER_STOP = threading.Event()
+
+
+def _now() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def official_api_session_status() -> dict[str, Any]:
+    try:
+        bundle = get_official_api_service().client.token_provider.get_token()
+        return {
+            "available": bool(bundle.access_token),
+            "status": "available" if bundle.access_token else "not_configured",
+            "source": "qianchuan_open_api",
+            "last_error": "",
+            "message": "千川官方 API 令牌已就绪" if bundle.access_token else "千川官方 API 尚未配置",
+        }
+    except OfficialApiNotConfigured as exc:
+        return {
+            "available": False,
+            "status": "not_configured",
+            "source": "qianchuan_open_api",
+            "last_error": str(exc),
+            "message": str(exc),
+        }
+    except Exception as exc:
+        return {
+            "available": False,
+            "status": "token_error",
+            "source": "qianchuan_open_api",
+            "last_error": str(exc),
+            "message": "千川官方 API 授权已失效，请重新授权",
+        }
+
+
+def discover_authorized_accounts() -> dict[str, Any]:
+    """只返回候选，不自动把全部授权账户加入用户目录。"""
+    rows, evidence = get_official_api_service().list_business_accounts()
+    candidates = [
+        {
+            "aavid": str(row.get("advertiser_id") or ""),
+            "account_name": str(row.get("advertiser_name") or ""),
+            "role": str(row.get("role") or ""),
+            "shop_id": str(row.get("shop_id") or ""),
+        }
+        for row in rows
+        if str(row.get("advertiser_id") or "").strip()
+    ]
+    complete = bool(evidence.get("complete"))
+    if candidates and complete:
+        message = "已取得官方授权的千川投放账户，请选择一个账户添加到工具"
+    elif candidates:
+        message = "已取得部分千川投放账户；未解析的操作主体不会作为账户显示，可先选择已确认账户或稍后重试"
+    else:
+        message = "尚未解析到可投放的千川账户，请稍后重试；店铺或企业操作主体不会直接作为千川账户添加"
+    return {
+        "success": True,
+        "mode": "official_api",
+        "requires_selection": True,
+        "complete": complete,
+        "evidence": evidence,
+        "candidates": candidates,
+        "message": message,
+    }
+
+
+def add_authorized_account(aavid: Any) -> dict[str, Any]:
+    """Add exactly one user-selected official API account, then warm its catalog."""
+    aid = str(aavid or "").strip()
+    if not aid.isdigit():
+        return {"success": False, "code": "invalid_aavid", "message": "请选择有效的千川账户"}
+
+    owner, token_path = _authorization_context()
+    identity = get_authorization_identity(token_path, owner_username=owner)
+    rows, evidence = get_official_api_service().list_business_accounts()
+    selected = next(
+        (row for row in rows if str(row.get("advertiser_id") or "").strip() == aid),
+        None,
+    )
+    if selected is None:
+        return {
+            "success": False,
+            "code": "account_not_authorized",
+            "message": "该账户不在当前官方 API 授权范围内，请重新授权后再试",
+            "evidence": evidence,
+        }
+
+    # An account-picker response may finish after Clear or a different OAuth grant.
+    with authorization_identity_guard(identity, token_path):
+        account = ensure_qianchuan_account(
+            aid,
+            account_name=str(selected.get("advertiser_name") or ""),
+            owner_username=owner,
+            directory_selected=True,
+            seen=True,
+            allow_reactivate_removed=True,
+            selection_authorization=identity,
+        )
+    sync = start_official_api_catalog_sync(account.get("account_uid") or aid)
+    return {
+        "success": True,
+        "mode": "official_api",
+        "account": account,
+        "catalog_sync": sync,
+        "message": "账户已添加，正在通过千川官方 API 后台读取计划",
+    }
+
+
+def _capability(plan: dict[str, Any], target_uid: str) -> dict[str, Any]:
+    common = {
+        "source": "qianchuan_open_api",
+        "api_contract_version": "official-open-api-v1",
+        "api_verified_at": _now(),
+        "retarget_supported": True,
+        "stop_supported": True,
+        "retarget_execute": True,
+        "regulation_execute": True,
+        "retarget_scene": plan.get("promotion_scene"),
+        "retarget_plan_system": plan.get("plan_system"),
+        "retarget_probe_version": "official-open-api-v1",
+        "retarget_verified_at": _now(),
+        "retarget_target_uid": target_uid,
+        "retarget_aavid": plan.get("aavid"),
+        "retarget_ad_id": plan.get("ad_id"),
+        "retarget_batch_execute": True,
+        "retarget_batch_probe_version": "official-open-api-v1",
+        "retarget_batch_verified_at": _now(),
+        "regulation_scene": plan.get("promotion_scene"),
+        "regulation_plan_system": plan.get("plan_system"),
+        "regulation_probe_version": "official-open-api-v1",
+        "regulation_verified_at": _now(),
+        "regulation_target_uid": target_uid,
+        "regulation_aavid": plan.get("aavid"),
+        "regulation_ad_id": plan.get("ad_id"),
+    }
+    if (
+        str(plan.get("plan_system") or "").strip().lower() == "global"
+        and str(plan.get("promotion_scene") or "").strip().lower() == "live"
+    ):
+        from services.qianchuan_open_api.service import (
+            material_report_filter_context,
+        )
+
+        filter_context = material_report_filter_context(plan)
+        if filter_context:
+            common["material_report_filter_context"] = filter_context
+    return common
+
+
+def _sync_account(
+    account: dict[str, Any],
+    db: SQLiteStore,
+    *,
+    processed_accounts: int = 0,
+    total_accounts: int = 1,
+) -> dict[str, Any]:
+    service = get_official_api_service()
+    aavid = str(account.get("aavid") or "")
+    account_name = account.get("account_name") or aavid
+    _catalog_local_call(mark_catalog_sync_progress,
+        processed_accounts=processed_accounts,
+        total_accounts=total_accounts,
+        current_account=account_name,
+        message=f"正在校验账户授权：{account_name}",
+        phase="account_access",
+        phase_label="校验账户授权",
+        phase_current=0,
+        phase_total=1,
+        account_progress_percent=5,
+    )
+    business_accounts, account_evidence = service.list_business_accounts()
+    # r22 had no selection/grant binding. A complete fresh grant can still
+    # prove that an old selection is no longer accessible. Never infer removal
+    # from an incomplete account response.
+    context = current_collection_context()
+    identity = getattr(context, "catalog_authorization_identity", None) if context else None
+    if identity and identity.get("app_id") and account_evidence.get("complete"):
+        from services.official_api_authorization import reconcile_selected_authorized_accounts
+        reconcile_selected_authorized_accounts(identity, business_accounts, account_evidence, db=db)
+    authorized = {str(row.get("advertiser_id") or ""): row for row in business_accounts}
+    official_account = authorized.get(aavid)
+    if not official_account:
+        if identity and account_evidence.get("complete"):
+            return {"complete": True, "removed_from_current_grant": True, "count": 0, "classes": {}}
+        raise RuntimeError("该账户不在当前官方 API 授权链中")
+    if official_account:
+        _catalog_local_call(ensure_qianchuan_account,
+            aavid,
+            account_name=official_account.get("advertiser_name") or account.get("account_name") or "",
+            owner_username=account.get("owner_username"),
+            directory_selected=True,
+            seen=True,
+            db=db,
+        )
+    _catalog_local_call(mark_catalog_sync_progress,
+        processed_accounts=processed_accounts,
+        total_accounts=total_accounts,
+        current_account=account_name,
+        message=f"账户授权已确认，准备读取四类计划：{account_name}",
+        phase="catalog_classes",
+        phase_label="读取四类计划",
+        phase_current=0,
+        phase_total=4,
+        account_progress_percent=10,
+    )
+
+    class_labels = {
+        "chengfang_live": "乘方·推直播",
+        "chengfang_product": "乘方·推商品",
+        "global_live": "全域·推直播",
+        "global_product": "全域·推商品",
+    }
+
+    def catalog_progress(progress: dict[str, Any]) -> None:
+        completed = int(progress.get("completed_classes") or 0)
+        current = int(progress.get("class_index") or 0)
+        total = max(1, int(progress.get("class_total") or 4))
+        class_key = str(progress.get("class_key") or "")
+        found = int(progress.get("discovered_plans") or 0)
+        _catalog_local_call(mark_catalog_sync_progress,
+            processed_accounts=processed_accounts,
+            total_accounts=total_accounts,
+            current_account=account_name,
+            message=(
+                f"正在读取{class_labels.get(class_key, class_key or '计划')}"
+                f"（{current}/{total}），已发现 {found} 条计划"
+            ),
+            phase="catalog_classes",
+            phase_label=f"读取{class_labels.get(class_key, '计划目录')}",
+            phase_current=completed,
+            phase_total=total,
+            discovered_plans=found,
+            account_progress_percent=10 + completed / total * 35,
+        )
+
+    plans, evidence = service.list_all_plans(
+        aavid,
+        progress_callback=catalog_progress,
+    )
+    evidence["account_chain"] = account_evidence
+    if not account_evidence.get("complete"):
+        evidence["complete"] = False
+    existing = {
+        str(row.get("ad_id") or ""): row
+        for row in _catalog_local_call(list_promotion_targets, owner_username=account.get("owner_username"), db=db)
+        if str(row.get("account_uid") or "") == str(account.get("account_uid") or "")
+    }
+    seen: set[str] = set()
+    class_counts = {
+        "global_live": 0,
+        "global_product": 0,
+        "chengfang_live": 0,
+        "chengfang_product": 0,
+    }
+    total_plans = len(plans)
+    _catalog_local_call(mark_catalog_sync_progress,
+        processed_accounts=processed_accounts,
+        total_accounts=total_accounts,
+        current_account=account_name,
+        message=f"已发现 {total_plans} 条计划，正在保存目录",
+        phase="saving_catalog",
+        phase_label="保存计划目录",
+        phase_current=0,
+        phase_total=total_plans,
+        discovered_plans=total_plans,
+        account_progress_percent=48,
+    )
+    for plan_index, plan in enumerate(plans, 1):
+        ad_id = str(plan.get("ad_id") or "")
+        if not ad_id:
+            continue
+        scene = str(plan.get("promotion_scene") or "")
+        system = str(plan.get("plan_system") or "unknown")
+        seen.add(ad_id)
+        if f"{system}_{scene}" in class_counts:
+            class_counts[f"{system}_{scene}"] += 1
+        prior = existing.get(ad_id) or {}
+        # The complete official list is sufficient for directory display and
+        # read-only monitor selection. Exact detail/capability evidence is
+        # deferred until the user actually enables this plan.
+        verified = bool(
+            scene in {"live", "product"}
+            and system in {"global", "chengfang"}
+        )
+        _catalog_local_call(upsert_promotion_target,
+            {
+                "aavid": aavid,
+                "ad_id": ad_id,
+                "account_name": (official_account or {}).get("advertiser_name") or account.get("account_name") or "",
+                "plan_name": plan.get("plan_name") or prior.get("plan_name") or "",
+                "promotion_scene": scene or prior.get("promotion_scene") or "product",
+                "plan_system": system,
+                "platform_status": plan.get("platform_status") or "unknown",
+                "verification_state": "verified" if verified else "candidate",
+                "verification_evidence_fresh": False,
+                "enabled": bool(prior.get("enabled")),
+                # Catalog and material collection are separate state machines.
+                # Preserve the existing collection state so catalog refreshes
+                # cannot turn an already collected target non-runnable.
+                **(
+                    {"last_status": "api_catalog_synced"}
+                    if not prior
+                    else {}
+                ),
+                "last_error": "" if verified else "官方 API 返回的计划体系或推广方式不完整",
+            },
+            owner_username=account.get("owner_username"),
+            trusted_catalog=True,
+            db=db,
+            ensure_schema=False,
+            refresh_capacity=False,
+        )
+        _catalog_local_call(mark_catalog_sync_progress,
+            processed_accounts=processed_accounts,
+            total_accounts=total_accounts,
+            current_account=account_name,
+            message=f"正在保存计划目录 {plan_index}/{max(1, total_plans)}",
+            phase="saving_catalog",
+            phase_label="保存计划目录",
+            phase_current=plan_index,
+            phase_total=total_plans,
+            discovered_plans=total_plans,
+            saved_plans=len(seen),
+            account_progress_percent=(
+                48 + (plan_index / max(1, total_plans)) * 47
+            ),
+        )
+
+    from services.qianchuan_accounts import refresh_monitor_capacity
+
+    _catalog_local_call(refresh_monitor_capacity, db=db)
+
+    # 只有两类 marketing_goal 的全部分页都成功时，才把本轮未见计划标为历史；
+    # 部分失败时保留上次完整目录，绝不以异常空结果覆盖。
+    if evidence.get("complete"):
+        for ad_id, prior in existing.items():
+            if ad_id in seen:
+                continue
+            _catalog_local_call(db.update,
+                "promotion_target",
+                {
+                    "verification_state": "missing",
+                    "monitor_eligible": 0,
+                    "retarget_eligible": 0,
+                    "stop_eligible": 0,
+                    "ineligible_reason": "本轮官方 API 完整目录中未发现该计划，保留历史只读记录",
+                    "capacity_state": "disabled",
+                    "last_status": "missing_from_api_catalog",
+                },
+                where={"target_uid": prior.get("target_uid")},
+            )
+    evidence["counts"] = class_counts
+    evidence["plan_count"] = len(seen)
+    evidence["details_deferred"] = len(seen)
+    evidence["error"] = "; ".join(
+        str(item.get("error") or "")
+        for item in (evidence.get("classes") or {}).values()
+        if isinstance(item, dict) and item.get("error")
+    )
+    _catalog_local_call(mark_catalog_sync_progress,
+        processed_accounts=processed_accounts,
+        total_accounts=total_accounts,
+        current_account=account_name,
+        message=f"计划已保存 {len(seen)} 条，正在完成目录校验",
+        phase="finalizing",
+        phase_label="完成目录校验",
+        phase_current=len(seen),
+        phase_total=max(len(seen), total_plans),
+        discovered_plans=total_plans,
+        saved_plans=len(seen),
+        account_progress_percent=98,
+    )
+    return evidence
+
+
+
+def _catalog_local_call(action, *args, _allow_deadline=False, **kwargs):
+    """Hold only the captured credential lock around local state, never HTTP."""
+    context = current_collection_context()
+    identity = getattr(context, "catalog_authorization_identity", None) if context else None
+    if identity is None:
+        return action(*args, **kwargs)
+    with authorization_identity_guard(identity, context.catalog_token_path):
+        try:
+            context.check_active("catalog_before_local_commit")
+        except CollectionDeadlineExceeded:
+            if not _allow_deadline:
+                raise
+        return action(*args, **kwargs)
+
+
+def run_catalog_sync(account_uid: Any = "", *, db: Optional[SQLiteStore] = None) -> dict[str, Any]:
+    owner, path = _authorization_context()
+    identity = get_authorization_identity(path, owner_username=owner)
+    epoch = collection_lifecycle.generation()
+    # Each catalog pass owns a fresh bounded budget, independent of an
+    # unbounded scheduler or another collector's remaining time.
+    context = CollectionContext(300, generation=epoch,
+        is_current=lambda: _owner_key() == owner and epoch == collection_lifecycle.generation())
+    context.authorization_identity = identity
+    context.catalog_authorization_identity = identity
+    context.catalog_token_path = path
+    collection_lifecycle.register(context)
+    try:
+        with use_collection_context(context):
+            try:
+                return _run_catalog_sync(account_uid, db=db)
+            except (AuthorizationContextChanged, CollectionCancelledError):
+                return {"success": False, "status": "authorization_superseded",
+                        "message": "授权已变化，旧目录结果未提交"}
+            except Exception as exc:
+                # A failed old pass must not finalize the new owner's catalog.
+                return _catalog_local_call(finalize_catalog_sync, owner_username=owner,
+                    refreshed_account_uids=[], account_results={}, error=str(exc), db=db, _allow_deadline=True)
+    except (AuthorizationContextChanged, CollectionCancelledError):
+        return {"success": False, "status": "authorization_superseded",
+                "message": "授权已变化，旧目录结果未提交"}
+    finally:
+        collection_lifecycle.release(context)
+
+def _run_catalog_sync(account_uid: Any = "", *, db: Optional[SQLiteStore] = None) -> dict[str, Any]:
+    store = db or SQLiteStore()
+    _catalog_local_call(init_sqlite_schema, database=store.config.get("database"))
+    owner = _owner_key()
+    requested_uid = str(account_uid or "").strip()
+    accounts = _catalog_local_call(list_qianchuan_accounts, owner_username=owner, db=store)
+    if requested_uid:
+        accounts = [row for row in accounts if str(row.get("account_uid") or "") == requested_uid]
+    accounts = [row for row in accounts if row.get("directory_selected")]
+    if not accounts:
+        return _catalog_local_call(finalize_catalog_sync,
+            owner_username=owner,
+            refreshed_account_uids=[],
+            account_results={},
+            error="尚未添加需要同步的千川账户",
+            db=store,
+        )
+    results: dict[str, dict[str, Any]] = {}
+    complete: list[str] = []
+    for index, account in enumerate(accounts, 1):
+        uid = str(account.get("account_uid") or "")
+        _catalog_local_call(mark_catalog_sync_progress,
+            processed_accounts=index - 1,
+            total_accounts=len(accounts),
+            current_account=account.get("account_name") or account.get("aavid"),
+            message=f"正在通过千川官方 API 同步 {account.get('account_name') or account.get('aavid')}",
+            phase="starting_account",
+            phase_label="开始同步账户",
+            phase_current=0,
+            phase_total=1,
+            account_progress_percent=1,
+        )
+        try:
+            # Official API reads are protected by the shared endpoint/account
+            # rate limiter. They must not reuse the legacy browser-wide lock:
+            # a long catalog refresh would otherwise block a newly enabled
+            # plan from collecting its first snapshot.
+            result = _sync_account(
+                account,
+                store,
+                processed_accounts=index - 1,
+                total_accounts=len(accounts),
+            )
+            results[uid] = result
+            if result.get("complete"):
+                complete.append(uid)
+        except (AuthorizationContextChanged, CollectionCancelledError):
+            raise
+        except Exception as exc:
+            results[uid] = {"complete": False, "error": str(exc), "classes": {}}
+            _catalog_local_call(store.update,
+                "qianchuan_account",
+                {"last_status": "api_sync_failed", "last_error": str(exc)[:2000]},
+                where={"account_uid": uid},
+            )
+    return _catalog_local_call(finalize_catalog_sync,
+        owner_username=owner,
+        complete_account_uids=complete,
+        account_results=results,
+        refreshed_account_uids=[str(row.get("account_uid") or "") for row in accounts],
+        db=store,
+    )
+
+
+def _next_pending_scope() -> tuple[bool, str]:
+    global _PENDING_ALL, _THREAD
+    with _LOCK:
+        if _PENDING_ALL:
+            _PENDING_ALL = False
+            _PENDING_ACCOUNT_UIDS.clear()
+            return True, ""
+        if _PENDING_ACCOUNT_UIDS:
+            return True, _PENDING_ACCOUNT_UIDS.pop()
+        # Clear ownership while holding the same lock used by enqueue callers.
+        # This closes the race where a request could be queued just as the old
+        # worker was exiting and then never be consumed.
+        _THREAD = None
+        return False, ""
+
+
+def _thread_entry(account_uid: str) -> None:
+    global _THREAD
+    scope = str(account_uid or "").strip()
+    try:
+        while True:
+            try:
+                run_catalog_sync(scope)
+            except Exception:
+                # No captured owner/generation here: never project a stale failure
+                # into a possibly newly authorized user's catalog.
+                pass
+            has_pending, scope = _next_pending_scope()
+            if not has_pending:
+                break
+            mark_catalog_sync_started(
+                owner_username=_owner_key(), account_uid=scope
+            )
+    finally:
+        with _LOCK:
+            if _THREAD is threading.current_thread():
+                _THREAD = None
+
+
+def start_official_api_catalog_sync(account_uid: Any = "") -> dict[str, Any]:
+    global _THREAD, _PENDING_ALL
+    uid = str(account_uid or "").strip()
+    with _LOCK:
+        if _THREAD and _THREAD.is_alive():
+            if uid:
+                _PENDING_ACCOUNT_UIDS.add(uid)
+            else:
+                _PENDING_ALL = True
+                _PENDING_ACCOUNT_UIDS.clear()
+            return {
+                "success": True,
+                "running": True,
+                "queued": True,
+                "message": "千川官方 API 目录正在同步，本次刷新已加入队列",
+            }
+        mark_catalog_sync_started(owner_username=_owner_key(), account_uid=uid)
+        _THREAD = threading.Thread(target=_thread_entry, args=(uid,), name="official-api-catalog", daemon=True)
+        _THREAD.start()
+    return {"success": True, "running": True, "mode": "official_api", "message": "已开始通过千川官方 API 同步账户计划"}
+
+
+def official_api_catalog_status() -> dict[str, Any]:
+    result = catalog_sync_status(owner_username=_owner_key())
+    result["backend"] = "official_api"
+    return result
+
+
+def _catalog_scheduler_loop(interval_seconds: int) -> None:
+    # 软件启动时先对用户主动添加的账户刷新一次；之后默认每5分钟刷新。
+    while not _SCHEDULER_STOP.is_set():
+        try:
+            start_official_api_catalog_sync()
+        except Exception:
+            # 单次失败不停止后续调度；详细错误由目录状态记录。
+            pass
+        _SCHEDULER_STOP.wait(max(60, int(interval_seconds)))
+
+
+def start_official_api_catalog_scheduler(interval_seconds: int = 300) -> threading.Thread:
+    global _SCHEDULER_THREAD
+    with _SCHEDULER_LOCK:
+        if _SCHEDULER_THREAD and _SCHEDULER_THREAD.is_alive():
+            return _SCHEDULER_THREAD
+        _SCHEDULER_STOP.clear()
+        _SCHEDULER_THREAD = threading.Thread(
+            target=_catalog_scheduler_loop,
+            args=(interval_seconds,),
+            name="qianchuan-official-api-catalog-scheduler",
+            daemon=True,
+        )
+        _SCHEDULER_THREAD.start()
+        return _SCHEDULER_THREAD
+
+
+def stop_official_api_catalog_scheduler(timeout: float = 5.0) -> None:
+    global _SCHEDULER_THREAD
+    _SCHEDULER_STOP.set()
+    thread = _SCHEDULER_THREAD
+    if thread and thread.is_alive() and thread is not threading.current_thread():
+        thread.join(timeout=max(0.1, float(timeout)))
+    if thread is None or not thread.is_alive():
+        _SCHEDULER_THREAD = None
