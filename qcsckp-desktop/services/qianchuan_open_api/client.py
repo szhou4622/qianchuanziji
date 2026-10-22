@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import inspect
 import random
+import re
 import socket
 import threading
 import time
@@ -207,7 +208,7 @@ class QianchuanOpenApiClient:
             raise ApiRequestError(str(exc), code="invalid_write_response",
                                   request_id=self._request_id({}, headers)) from exc
         code = value.get("code")
-        if not (type(code) is int or (isinstance(code, str) and code.strip().lstrip("-").isdigit())):
+        if not (type(code) is int or (isinstance(code, str) and re.fullmatch(r"(?:0|-?[1-9][0-9]*)", code))):
             raise ApiRequestError("千川官方 API 写响应缺少有效业务状态码", code="invalid_write_response",
                                   request_id=self._request_id(value, headers))
         return value

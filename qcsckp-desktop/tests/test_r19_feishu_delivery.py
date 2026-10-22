@@ -190,6 +190,42 @@ class FrozenDeliveryTests(unittest.TestCase):
         bridge._inbox_finish(self.owner, new)
         self.assertIsNone(bridge._inbox_begin(self.owner, 'same-event', 'card', {}))
 
+    def test_redundant_patch_retry_settles_its_lease_without_network(self):
+        uid = self.create()
+        with patch.object(self.actual, '_request', return_value={'data': {'message_id': 'message'}}):
+            self.actual._deliver_outbox_once()
+        self.actual._queue_outbox(operation='update_card', message_id='message', payload={'task_uid': uid, 'content': 'old'})
+        with patch.object(self.actual, '_request') as request:
+            self.assertTrue(self.actual._deliver_outbox_once())
+            self.assertFalse(self.actual._deliver_outbox_once())
+            request.assert_not_called()
+        self.assertEqual([], self.store.execute("SELECT id FROM feishu_outbox WHERE status IN ('queued','sending')", fetch=True))
+
+    def test_binding_and_removal_serialize_the_entire_group_update(self):
+        bridge._update_profile(self.owner, {'groups': [{'chat_id': 'old-group'}]})
+        entered, release, removed = threading.Event(), threading.Event(), threading.Event()
+        def consume(*args):
+            entered.set()
+            self.assertTrue(release.wait(5))
+            return True
+        def remove():
+            bridge.remove_local_feishu_group('old-group')
+            removed.set()
+        message = SimpleNamespace(message_id='bind-message', content_text='绑定群 123456',
+                                  sender=SimpleNamespace(open_id='personal'), chat_id='new-group', chat_type='group')
+        with patch.object(self.actual, '_consume_binding_code', side_effect=consume), patch.object(self.actual, '_request', return_value={}):
+            binder = threading.Thread(target=self.actual._on_message, args=(message,))
+            binder.start()
+            self.assertTrue(entered.wait(5))
+            remover = threading.Thread(target=remove)
+            remover.start()
+            self.assertFalse(removed.wait(.05))
+            release.set()
+            binder.join(5)
+            remover.join(5)
+        self.assertFalse(binder.is_alive() or remover.is_alive())
+        self.assertEqual(['new-group'], [g['chat_id'] for g in self.actual.profile()['groups']])
+
     def test_toggle_commits_event_receipt_with_selection(self):
         from services.qianchuan_accounts import ensure_qianchuan_account
         ensure_qianchuan_account('10001', owner_username=self.owner, enabled=True, seen=True, db=self.store)

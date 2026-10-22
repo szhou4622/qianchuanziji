@@ -2760,7 +2760,13 @@ class LocalFeishuBridge:
             prior_receipt = store.select_one("feishu_outbox", where={"outbox_uid": receipt_uid}) or {}
             current_message = next((m for m in _loads(row.get("card_messages_json"), [])
                                     if isinstance(m, dict) and m.get("message_id") == message_id), {})
-            if current_message.get("last_content_sha256") == receipt["content_sha256"]:
+            if (current_message.get("last_content_sha256") == receipt["content_sha256"]
+                and prior_receipt.get("status") == "sent"):
+                if queued_row:
+                    store.execute("UPDATE feishu_outbox SET status='superseded',lease_owner=NULL,"
+                                  "lease_expires_at=NULL,updated_at=? WHERE outbox_uid=? AND status='sending' "
+                                  "AND lease_owner=? AND fencing_token=?",
+                                  (_dt(_now()), queued_row["outbox_uid"], _OUTBOX_LEASE_OWNER, queued_row["fencing_token"]))
                 return True
             attempt_count = max(int((queued_row or {}).get("attempt_count") or 0),
                                 int(prior_receipt.get("attempt_count") or 0))
@@ -3299,42 +3305,44 @@ class LocalFeishuBridge:
                 if chat_type not in {"group", "topic"}:
                     self.send_text(chat_id, "请在需要接收提醒的群里@机器人发送群绑定命令。")
                     return
-                profile = self.profile()
-                if open_id != str(profile.get("authorized_open_id") or ""):
-                    self.send_private_text(open_id, "只有已经绑定的授权人可以绑定接收群。")
-                    return
-                if not self._consume_binding_code("group", group_match.group(1)):
-                    self.send_private_text(open_id, "群绑定码无效或已过期，请在工具里重新生成。")
-                    return
-                groups = [
-                    item
-                    for item in profile.get("groups") or []
-                    if isinstance(item, dict) and str(item.get("chat_id") or "") != chat_id
-                ]
-                groups.append({"chat_id": chat_id, "bound_at": _dt(_now())})
-                _update_profile(self.account_username, {"groups": groups})
+                with _audience_lock(self.account_username):
+                    profile = self.profile()
+                    if open_id != str(profile.get("authorized_open_id") or ""):
+                        self.send_private_text(open_id, "只有已经绑定的授权人可以绑定接收群。")
+                        return
+                    if not self._consume_binding_code("group", group_match.group(1)):
+                        self.send_private_text(open_id, "群绑定码无效或已过期，请在工具里重新生成。")
+                        return
+                    groups = [
+                        item
+                        for item in profile.get("groups") or []
+                        if isinstance(item, dict) and str(item.get("chat_id") or "") != chat_id
+                    ]
+                    groups.append({"chat_id": chat_id, "bound_at": _dt(_now())})
+                    _update_profile(self.account_username, {"groups": groups})
                 self.send_text(chat_id, "当前群已绑定，后续可以接收千川追投确认卡片。")
                 return
             if personal_match:
                 if chat_type != "p2p":
                     self.send_text(chat_id, "个人绑定码请私聊机器人发送。")
                     return
-                if not self._consume_binding_code("personal", personal_match.group(1)):
-                    self.send_private_text(open_id, "个人绑定码无效或已过期，请在工具里重新生成。")
-                    return
-                profile = self.profile()
-                existing = str(profile.get("authorized_open_id") or "")
-                if existing and existing != open_id:
-                    self.send_private_text(open_id, "该工具账号已经绑定其他授权人。")
-                    return
-                _update_profile(
-                    self.account_username,
-                    {
-                        "authorized_open_id": open_id,
-                        "personal_chat_id": chat_id,
-                        "authorized_bound_at": _dt(_now()),
-                    },
-                )
+                with _audience_lock(self.account_username):
+                    if not self._consume_binding_code("personal", personal_match.group(1)):
+                        self.send_private_text(open_id, "个人绑定码无效或已过期，请在工具里重新生成。")
+                        return
+                    profile = self.profile()
+                    existing = str(profile.get("authorized_open_id") or "")
+                    if existing and existing != open_id:
+                        self.send_private_text(open_id, "该工具账号已经绑定其他授权人。")
+                        return
+                    _update_profile(
+                        self.account_username,
+                        {
+                            "authorized_open_id": open_id,
+                            "personal_chat_id": chat_id,
+                            "authorized_bound_at": _dt(_now()),
+                        },
+                    )
                 self.send_text(chat_id, "个人绑定成功。你是该工具账号唯一可以确认追投的人。")
         except Exception as exc:
             inbox_error = str(exc)
@@ -3797,16 +3805,17 @@ def clear_local_feishu_binding() -> Dict[str, Any]:
     account = _MANAGER.account
     if not account:
         return {"success": False, "message": "请先登录工具账号"}
-    _update_profile(
-        account,
-        {
-            "authorized_open_id": "",
-            "personal_chat_id": "",
-            "groups": [],
-        },
-        revoke_all=True,
-    )
-    _clear_persisted_binding_codes(account)
+    with _audience_lock(account):
+        _update_profile(
+            account,
+            {
+                "authorized_open_id": "",
+                "personal_chat_id": "",
+                "groups": [],
+            },
+            revoke_all=True,
+        )
+        _clear_persisted_binding_codes(account)
     return {"success": True}
 
 

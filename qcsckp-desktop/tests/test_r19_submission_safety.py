@@ -202,7 +202,9 @@ class SubmissionSafetyTests(unittest.TestCase):
     def test_post_requires_a_valid_business_envelope(self):
         from services.qianchuan_open_api.errors import ApiWriteOutcomeUnknown
         for raw in (b"", b"[]", b"null", b"\xff", b"<html>bad gateway</html>", b"{}",
-                    b'{"data": {}}', b'{"code": null}', b'{"code": false}', b'{"code": ""}'):
+                    b'{"data": {}}', b'{"code": null}', b'{"code": false}', b'{"code": ""}',
+                    b'{"code":"--0"}', b'{"code":" 0 "}', b'{"code":"00"}', b'{"code":"-0"}',
+                    b'{"code":"\\u00b2"}', b'{"code":"\\u0660"}'):
             with self.subTest(raw=raw):
                 reply = Reply()
                 reply.read = lambda: raw
