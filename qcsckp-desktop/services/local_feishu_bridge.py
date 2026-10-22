@@ -57,6 +57,8 @@ _AUDIENCE_LOCKS = tuple(threading.RLock() for _ in range(64))
 _INITIAL_DELIVERY_PROTOCOL = 2
 _MAX_DELIVERY_ATTEMPTS = 8
 _UUID_RETRY_MINUTES = 50
+_DEFAULT_REMINDER_COOLDOWN_MINUTES = 60
+_MAX_REMINDER_COOLDOWN_MINUTES = 7 * 24 * 60
 
 
 class LocalClaimInvalidError(RuntimeError):
@@ -302,6 +304,14 @@ def _unprotect_secret(ciphertext: str) -> str:
         return ""
 
 
+def _parse_reminder_cooldown(value: Any) -> int:
+    if isinstance(value, str) and re.fullmatch(r"[0-9]{1,5}", value.strip()):
+        value = int(value.strip())
+    if type(value) is not int or not 0 <= value <= _MAX_REMINDER_COOLDOWN_MINUTES:
+        raise ValueError("提醒冷却时间必须是 0–10080 的整数分钟；0 表示关闭")
+    return value
+
+
 def _profile_for(username: str, *, include_secret: bool = False) -> Dict[str, Any]:
     key = _account_key(username)
     raw = (_load_profiles().get("profiles") or {}).get(key)
@@ -313,6 +323,12 @@ def _profile_for(username: str, *, include_secret: bool = False) -> Dict[str, An
     profile.setdefault("send_personal", True)
     profile.setdefault("send_groups", True)
     profile.setdefault("groups", [])
+    try:
+        profile["reminder_cooldown_minutes"] = _parse_reminder_cooldown(
+            profile.get("reminder_cooldown_minutes", _DEFAULT_REMINDER_COOLDOWN_MINUTES))
+    except ValueError:
+        # Invalid hand-edited/older configuration must not disable spam control.
+        profile["reminder_cooldown_minutes"] = _DEFAULT_REMINDER_COOLDOWN_MINUTES
     profile["app_secret_saved"] = bool(profile.get("app_secret_protected"))
     if include_secret:
         profile["app_secret"] = _unprotect_secret(
@@ -3584,6 +3600,7 @@ class LocalFeishuBridge:
                 "authorized_open_id": str(profile.get("authorized_open_id") or ""),
                 "send_personal": bool(profile.get("send_personal", True)),
                 "send_groups": bool(profile.get("send_groups", True)),
+                "reminder_cooldown_minutes": profile["reminder_cooldown_minutes"],
                 "groups": profile.get("groups") if isinstance(profile.get("groups"), list) else [],
             },
         }
@@ -3766,6 +3783,11 @@ def save_local_feishu_config(config: Dict[str, Any]) -> Dict[str, Any]:
         "send_personal": bool((config or {}).get("send_personal", True)),
         "send_groups": bool((config or {}).get("send_groups", True)),
     }
+    if "reminder_cooldown_minutes" in (config or {}):
+        try:
+            changes["reminder_cooldown_minutes"] = _parse_reminder_cooldown(config["reminder_cooldown_minutes"])
+        except ValueError as exc:
+            return {"success": False, "message": str(exc)}
     if app_secret:
         changes["app_secret_protected"] = _protect_secret(app_secret)
     elif not existing.get("app_secret_saved"):
@@ -3824,6 +3846,68 @@ def send_local_feishu_test_card() -> Dict[str, Any]:
     if bridge is None:
         return {"success": False, "message": "请先登录工具账号"}
     return bridge.send_test_card()
+
+
+def _reminder_scope(payload: Mapping[str, Any], action_type: str) -> tuple:
+    """Match the logical reminder, never mutable metrics or selected materials."""
+    text = lambda key, default="": str(payload.get(key) or default).strip()
+    common = (text("aavid"), text("ad_id"))
+    if action_type == "stop":
+        # Different stop strategies for the same control cycle share a decision.
+        return (*common, text("assist_task_id"), text("control_cycle_key", "legacy"),
+                text("regulation_stop_action", "pause"))
+    operation = "increase_budget" if text("task_operation") == "increase_budget" else "create_retarget"
+    return (*common, text("target_uid"), text("strategy_id"), operation,
+            text("assist_task_id") if operation == "increase_budget" else "")
+
+
+def _reminder_cooldown_response(connection: Any, account: str, payload: Dict[str, Any],
+                                *, action_type: str, dedupe: str) -> Optional[Dict[str, Any]]:
+    """Called inside the creation write transaction; history stays unchanged.
+
+    Existing active cards win. Terminal history survives restarts, and expiry is
+    measured from its original deadline rather than a delayed cleanup run.
+    """
+    minutes = _profile_for(account)["reminder_cooldown_minutes"]
+    if minutes == 0 or payload.get("preview_only") is True:
+        return None
+    active = connection.execute(
+        "SELECT task_uid FROM local_retarget_task WHERE account_username=? AND active_dedupe_key=?",
+        (account, dedupe),
+    ).fetchone()
+    if active:
+        return None  # Preserve the existing active-card response/receipt path.
+    now = _now()
+    cutoff = _dt(now - timedelta(minutes=minutes))
+    rows = connection.execute(
+        "SELECT task_uid,status,payload_json,finished_at,expires_at FROM local_retarget_task "
+        "WHERE account_username=? AND action_type=? AND ((status='rejected' AND finished_at>?) "
+        "OR (status='expired' AND expires_at>?)) "
+        "ORDER BY CASE WHEN status='expired' THEN expires_at ELSE finished_at END DESC,id DESC",
+        (account, action_type, cutoff, cutoff),
+    )
+    scope = _reminder_scope(payload, action_type)
+    for row in rows:
+        previous = _loads(row["payload_json"], {})
+        if (not isinstance(previous, dict) or previous.get("preview_only") is True
+            or _reminder_scope(previous, action_type) != scope):
+            continue
+        since = _parse_dt(row["expires_at"] if row["status"] == "expired" else row["finished_at"])
+        if since is None:
+            continue
+        until = since + timedelta(minutes=minutes)
+        if until <= now:
+            continue
+        return {
+            "success": True, "duplicate": True, "suppressed": True,
+            "message": "提醒冷却中，暂不重复发送飞书卡片",
+            "data": {"task_uid": row["task_uid"], "status": row["status"],
+                     "delivery_state": "cooldown", "suppression_reason": "reminder_cooldown",
+                     "cooldown_minutes": minutes, "cooldown_until": _dt(until),
+                     "cooldown_remaining_seconds": max(1, int((until - now).total_seconds())),
+                     "sent_count": 0, "queued_count": 0},
+        }
+    return None
 
 
 def _expire_local_tasks(account_username: str) -> List[str]:
@@ -4218,6 +4302,9 @@ def _create_local_retarget_task_for(
     conn = _db()
     try:
         conn.execute("BEGIN IMMEDIATE")
+        cooldown = _reminder_cooldown_response(conn, account, payload, action_type="retarget", dedupe=dedupe)
+        if cooldown:
+            return cooldown
         try:
             conn.execute(
                 "INSERT INTO local_retarget_task("
@@ -4464,6 +4551,9 @@ def create_local_stop_task(payload: Dict[str, Any]) -> Dict[str, Any]:
     conn = _db()
     try:
         conn.execute("BEGIN IMMEDIATE")
+        cooldown = _reminder_cooldown_response(conn, account, snapshot, action_type="stop", dedupe=dedupe)
+        if cooldown:
+            return cooldown
         try:
             conn.execute(
                 "INSERT INTO local_retarget_task("
