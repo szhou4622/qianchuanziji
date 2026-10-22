@@ -1,0 +1,87 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  repository-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -B tools/check_repository.py
+  desktop-tests:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: qcsckp-desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install locked dependencies
+        run: |
+          python -m pip install uv
+          uv sync --frozen --no-install-project
+      - name: Run isolated desktop regression suite
+        run: uv run --no-sync python -B scripts/run_isolated_tests.py --report ../desktop-tests-report.txt
+      - name: Preserve test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-tests-report
+          path: desktop-tests-report.txt
+          if-no-files-found: warn
+  frontend-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: qcsckp-desktop/production_v1a_frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: qcsckp-desktop/production_v1a_frontend/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+  php-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check all tracked PHP sources
+        shell: bash
+        run: |
+          php --version
+          git ls-files -z '*.php' | xargs -0 -r -n1 php -l
+  ci-gate:
+    if: always()
+    needs: [repository-checks, desktop-tests, frontend-build, php-lint]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every validation job to succeed
+        env:
+          JOB_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python - <<'PY'
+          import json, os
+          jobs = json.loads(os.environ['JOB_RESULTS'])
+          failed = {name: job['result'] for name, job in jobs.items() if job['result'] != 'success'}
+          if len(jobs) != 4 or failed:
+              raise SystemExit(f'Required validation did not succeed: {failed}')
+          print('All four required validation jobs succeeded.')
+          PY

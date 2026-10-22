@@ -1,0 +1,38 @@
+# Operating-system metadata
+.DS_Store
+Thumbs.db
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+qcsckp-api-services/config.php
+
+# Python environments and generated files
+**/.venv/
+**/__pycache__/
+*.py[cod]
+
+# Local runtime data
+qcsckp-desktop/data/
+qcsckp-desktop/logs/
+qcsckp-desktop/output/
+qcsckp-desktop/dev_files/
+qcsckp-desktop/.codex-*.log
+
+# Build output
+**/build/
+**/dist/
+!qcsckp-desktop/production_v1a_frontend/dist/
+!qcsckp-desktop/production_v1a_frontend/dist/**
+**/wheels/
+**/node_modules/
+*.egg-info/
+
+# Collaboration CI and private local state
+/desktop-tests-report.txt
+*.dpapi
+*.pfx
+*.p12
+*.key
+secrets.local.json

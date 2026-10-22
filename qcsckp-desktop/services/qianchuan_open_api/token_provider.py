@@ -1,0 +1,975 @@
+"""可注入的千川令牌提供器与本机 OAuth 配置存储。"""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import json
+import os
+import secrets
+import shutil
+import threading
+import time
+import tempfile
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass, replace
+from typing import Any, Callable, Mapping, Optional, Protocol
+from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.request import Request, urlopen
+
+from config import (
+    DATA_DIR,
+    QIANCHUAN_API_TOKEN_FILE,
+    QIANCHUAN_OFFICIAL_API_BASE_URL,
+)
+from .errors import ApiTokenError, OfficialApiNotConfigured
+from release_configuration import environment_value
+
+
+QIANCHUAN_OAUTH_PAGE = "https://qianchuan.jinritemai.com/openapi/qc/audit/oauth.html"
+
+
+_oauth_browser_lock = threading.RLock()
+_oauth_browser_callbacks: dict[str, tuple[float, str]] = {}
+_oauth_browser_errors: dict[str, str] = {}
+_oauth_browser_threads: dict[str, threading.Thread] = {}
+_oauth_browser_cancel: dict[str, threading.Event] = {}
+_token_path_lock = threading.RLock()
+_credential_locks: dict[str, threading.RLock] = {}
+_operation_locks: dict[tuple[str, str], threading.Lock] = {}
+_credential_lock_state = threading.local()
+
+
+class AuthorizationContextChanged(ApiTokenError):
+    def __init__(self) -> None:
+        super().__init__("授权身份已经变化，旧请求结果已丢弃", code="authorization_context_changed")
+
+
+def _path_key(path: str) -> str:
+    return os.path.normcase(os.path.realpath(os.path.abspath(path)))
+
+
+def _operation_lock(kind: str, path: str) -> threading.Lock:
+    with _token_path_lock:
+        return _operation_locks.setdefault((kind, _path_key(path)), threading.Lock())
+
+
+@contextmanager
+def credential_file_guard(path: str):
+    """One short cross-thread/process lock for a credential/settings file.
+
+    Network requests and authorization-change callbacks must run outside it.
+    The lock file contains no credentials and is not the replaceable JSON file.
+    """
+    key = _path_key(path)
+    with _token_path_lock:
+        lock = _credential_locks.setdefault(key, threading.RLock())
+    with lock:
+        held = getattr(_credential_lock_state, "paths", set())
+        if key in held:
+            yield
+            return
+        os.makedirs(os.path.dirname(key), exist_ok=True)
+        with open(key + ".lock", "a+b") as handle:
+            handle.seek(0, os.SEEK_END)
+            if handle.tell() == 0:
+                handle.write(b"\0")
+                handle.flush()
+            handle.seek(0)
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                _credential_lock_state.paths = held | {key}
+                yield
+            finally:
+                _credential_lock_state.paths = held
+                handle.seek(0)
+                if os.name == "nt":
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _current_owner() -> str:
+    try:
+        from services.qianchuan_session import current_session_owner
+
+        owner = str(current_session_owner() or "").strip().casefold()
+    except Exception:
+        owner = ""
+    return owner or "local_default"
+
+
+def _owner_token_path(owner: Optional[str] = None) -> str:
+    owner = owner or _current_owner()
+    digest = hashlib.sha256(owner.encode("utf-8")).hexdigest()[:24]
+    return os.path.join(DATA_DIR, "profiles", digest, "qianchuan_open_api_token.json")
+
+
+def resolve_token_path(path: Optional[str] = None, *, owner_username: Optional[str] = None) -> str:
+    """Resolve once for an owner; claim the legacy file at most once."""
+    if path:
+        return os.path.abspath(str(path))
+    owner = str(owner_username or _current_owner()).strip().casefold()
+    target = _owner_token_path(owner)
+    if os.path.isfile(target) or not os.path.isfile(QIANCHUAN_API_TOKEN_FILE):
+        return target
+    marker = os.path.join(DATA_DIR, ".qianchuan_token_migrated_owner")
+    with credential_file_guard(marker):
+        if os.path.isfile(target):
+            return target
+        if os.path.isfile(marker):
+            # Migration is one-time even for the same owner. An explicit
+            # disconnect must not resurrect the retained rollback copy.
+            return target
+        try:
+            with open(marker, "r", encoding="utf-8") as handle:
+                migrated_owner = handle.read().strip().casefold()
+        except OSError:
+            migrated_owner = ""
+        if migrated_owner and migrated_owner != owner:
+            return target
+        with credential_file_guard(target):
+            if not os.path.isfile(target):
+                fd, temporary = tempfile.mkstemp(prefix="token-migration-", suffix=".tmp",
+                                                 dir=os.path.dirname(target))
+                os.close(fd)
+                try:
+                    shutil.copy2(QIANCHUAN_API_TOKEN_FILE, temporary)
+                    os.replace(temporary, target)
+                finally:
+                    if os.path.exists(temporary):
+                        os.unlink(temporary)
+            fd, temporary = tempfile.mkstemp(prefix="owner-migration-", suffix=".tmp", dir=DATA_DIR)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+                    handle.write(owner)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temporary, marker)
+            finally:
+                if os.path.exists(temporary):
+                    os.unlink(temporary)
+    return target
+
+
+def _remember_oauth_browser_callback(state: str, query: str) -> None:
+    now = time.time()
+    with _oauth_browser_lock:
+        expired = [
+            key
+            for key, item in _oauth_browser_callbacks.items()
+            if now - item[0] > 15 * 60
+        ]
+        for key in expired:
+            _oauth_browser_callbacks.pop(key, None)
+        _oauth_browser_callbacks[state] = (now, query)
+        _oauth_browser_errors.pop(state, None)
+
+
+def _peek_oauth_browser_callback(state: str) -> str:
+    with _oauth_browser_lock:
+        item = _oauth_browser_callbacks.get(state)
+        return item[1] if item else ""
+
+
+def _discard_oauth_browser_callback(state: str) -> None:
+    with _oauth_browser_lock:
+        _oauth_browser_callbacks.pop(state, None)
+        _oauth_browser_errors.pop(state, None)
+
+
+def _oauth_callback_query(expected_state: str, url: str) -> str:
+    """从授权浏览器导航中提取属于本次会话的回调，绝不记录完整 URL。"""
+    parsed = urlparse(str(url or ""))
+    params = parse_qs(parsed.query, keep_blank_values=True)
+    code = str((params.get("auth_code") or [""])[0]).strip()
+    state = str((params.get("state") or [""])[0]).strip()
+    if code and state and secrets.compare_digest(state, expected_state):
+        return parsed.query
+    return ""
+
+
+def _remember_oauth_browser_error(state: str, message: str) -> None:
+    # 避免异常对象意外携带一次性回调查询串。
+    safe = str(message or "授权浏览器异常").split("?", 1)[0].strip()
+    with _oauth_browser_lock:
+        _oauth_browser_errors[state] = safe[:300]
+
+
+def _peek_oauth_browser_error(state: str) -> str:
+    with _oauth_browser_lock:
+        return str(_oauth_browser_errors.get(state) or "")
+
+
+def open_oauth_authorization_browser(url: str, state: str) -> bool:
+    """用本机 Chrome 打开授权页并监听导航，不依赖回调转交或本机端口。"""
+    auth_url = str(url or "").strip()
+    expected_state = str(state or "").strip()
+    if not auth_url.startswith("https://") or not expected_state:
+        raise ApiTokenError("千川授权地址或 state 无效")
+
+    with _oauth_browser_lock:
+        existing = _oauth_browser_threads.get(expected_state)
+        if existing and existing.is_alive():
+            return True
+        # 新授权替代旧授权，避免用户继续操作过期窗口。
+        for event in _oauth_browser_cancel.values():
+            event.set()
+        cancel = threading.Event()
+        _oauth_browser_cancel.clear()
+        _oauth_browser_cancel[expected_state] = cancel
+        _oauth_browser_errors.pop(expected_state, None)
+
+    def _worker() -> None:
+        browser = None
+        captured = threading.Event()
+        try:
+            from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+            from playwright.sync_api import sync_playwright
+            from utils.common import require_executable_path
+
+            with sync_playwright() as playwright:
+                browser = playwright.chromium.launch(
+                    executable_path=require_executable_path(),
+                    headless=False,
+                    args=["--start-maximized"],
+                )
+                context = browser.new_context(no_viewport=True)
+
+                def _route(route: Any, request: Any) -> None:
+                    query = _oauth_callback_query(expected_state, request.url)
+                    if query:
+                        _remember_oauth_browser_callback(expected_state, query)
+                        captured.set()
+                        # 已取得一次性授权码，不再把它发送给任何回调服务。
+                        route.abort()
+                        return
+                    route.continue_()
+
+                context.route("**/*", _route)
+                page = context.new_page()
+                try:
+                    page.goto(auth_url, wait_until="domcontentloaded", timeout=60_000)
+                except PlaywrightTimeoutError:
+                    # 官方授权页偶尔会被统计资源拖慢。主文档已经出现时继续
+                    # 等待用户授权，不能因为次要资源超时直接关闭授权窗口。
+                    if page.is_closed():
+                        raise
+                deadline = time.time() + 10 * 60
+                while (
+                    time.time() < deadline
+                    and not captured.is_set()
+                    and not cancel.is_set()
+                    and browser.is_connected()
+                ):
+                    # Playwright 的同步事件在 API 调用期间派发。
+                    page.wait_for_timeout(250)
+                if not captured.is_set() and not cancel.is_set():
+                    _remember_oauth_browser_error(
+                        expected_state,
+                        "授权窗口已关闭或等待超时，请重新点击保存并授权",
+                    )
+        except Exception as exc:
+            if not captured.is_set() and not cancel.is_set():
+                _remember_oauth_browser_error(expected_state, str(exc))
+        finally:
+            if browser is not None:
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+            with _oauth_browser_lock:
+                _oauth_browser_threads.pop(expected_state, None)
+                _oauth_browser_cancel.pop(expected_state, None)
+
+    thread = threading.Thread(
+        target=_worker,
+        name="qcsckp-oauth-browser",
+        daemon=True,
+    )
+    with _oauth_browser_lock:
+        _oauth_browser_threads[expected_state] = thread
+    thread.start()
+    return True
+
+
+@dataclass(frozen=True)
+class AccessTokenBundle:
+    access_token: str
+    refresh_token: str = ""
+    app_id: str = ""
+    app_secret: str = ""
+    expires_at: float = 0.0
+    oauth_state: str = ""
+    oauth_started_at: float = 0.0
+    oauth_poll_secret: str = ""
+    owner_username: str = ""
+    auth_generation: str = ""
+    token_revision: str = ""
+
+    def usable(
+        self, skew_seconds: int = 120, *, allow_non_expiring: bool = False
+    ) -> bool:
+        if not self.access_token:
+            return False
+        if self.expires_at <= 0:
+            return bool(allow_non_expiring)
+        return self.expires_at > time.time() + skew_seconds
+
+
+class TokenProvider(Protocol):
+    def get_token(self, *, force_refresh: bool = False,
+                  rejected_token_revision: Optional[str] = None) -> AccessTokenBundle: ...
+
+
+class InjectedTokenProvider:
+    """测试和联调注入；不会持久化令牌。"""
+
+    def __init__(
+        self,
+        bundle: AccessTokenBundle,
+        refresh_callback: Optional[Callable[[AccessTokenBundle], AccessTokenBundle]] = None,
+    ) -> None:
+        self._bundle = bundle
+        self._refresh_callback = refresh_callback
+        self._lock = threading.Lock()
+
+    def get_identity(self) -> dict[str, str]:
+        return {"owner_username": self._bundle.owner_username or _current_owner(),
+                "app_id": self._bundle.app_id,
+                "auth_generation": self._bundle.auth_generation or "injected-" + str(id(self))}
+
+    def get_token(self, *, force_refresh: bool = False,
+                  rejected_token_revision: Optional[str] = None) -> AccessTokenBundle:
+        if self._bundle.usable(allow_non_expiring=True) and not force_refresh:
+            return self._bundle
+        with self._lock:
+            if self._bundle.usable(allow_non_expiring=True) and not force_refresh:
+                return self._bundle
+            if not self._refresh_callback:
+                if self._bundle.access_token and not self._bundle.expires_at:
+                    return self._bundle
+                raise ApiTokenError("千川 Open API access_token 已过期，且未配置刷新器")
+            self._bundle = self._refresh_callback(self._bundle)
+            return self._bundle
+
+
+def _protect(data: bytes) -> bytes:
+    if os.name != "nt":
+        raise OfficialApiNotConfigured("令牌持久化仅支持 Windows DPAPI")
+    import win32crypt  # type: ignore
+
+    return win32crypt.CryptProtectData(data, "QCSCKP Open API", None, None, None, 0)
+
+
+def _unprotect(data: bytes) -> bytes:
+    if os.name != "nt":
+        raise OfficialApiNotConfigured("令牌持久化仅支持 Windows DPAPI")
+    import win32crypt  # type: ignore
+
+    return win32crypt.CryptUnprotectData(data, None, None, None, 0)[1]
+
+
+def _authorization_context(path: Optional[str] = None, *, owner_username: Optional[str] = None) -> tuple[str, str]:
+    active_owner = _current_owner()
+    owner = str(owner_username or active_owner).strip().casefold()
+    if owner_username is not None and owner != active_owner:
+        raise AuthorizationContextChanged()
+    return owner, resolve_token_path(path, owner_username=owner)
+
+
+def _assert_current_owner(owner: str) -> None:
+    if _current_owner() != owner:
+        raise AuthorizationContextChanged()
+
+
+def _public_identity(bundle: Optional[AccessTokenBundle], owner: str) -> dict[str, str]:
+    if bundle and bundle.owner_username and bundle.owner_username != owner:
+        raise AuthorizationContextChanged()
+    return {"owner_username": owner, "app_id": bundle.app_id if bundle else "",
+            "auth_generation": bundle.auth_generation if bundle else "unconfigured"}
+
+
+def _save_token_bundle_locked(bundle: AccessTokenBundle, path: str, owner: str) -> AccessTokenBundle:
+    committed = replace(bundle, owner_username=owner,
+                        auth_generation=bundle.auth_generation or secrets.token_hex(16),
+                        token_revision=secrets.token_hex(16))
+    plain = json.dumps(asdict(committed), ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    wrapper = {"format": "qcsckp-oceanengine-token-dpapi-v1",
+               "ciphertext": base64.b64encode(_protect(plain)).decode("ascii")}
+    folder = os.path.dirname(os.path.abspath(path))
+    os.makedirs(folder, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=os.path.basename(path) + ".", suffix=".tmp", dir=folder)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+            json.dump(wrapper, handle, ensure_ascii=False, separators=(",", ":"))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+    return committed
+
+
+def save_token_bundle(bundle: AccessTokenBundle, path: Optional[str] = None, *, owner_username: Optional[str] = None) -> None:
+    """Compatibility writer; all writes use the same fixed-path file lock."""
+    owner, target = _authorization_context(path, owner_username=owner_username)
+    with credential_file_guard(target):
+        _assert_current_owner(owner)
+        _public_identity(bundle, owner)
+        if bundle.token_revision and not _same_revision(bundle, _load_saved_bundle(target)):
+            raise AuthorizationContextChanged()
+        _save_token_bundle_locked(bundle, target, owner)
+
+
+def _load_saved_bundle(path: Optional[str] = None) -> Optional[AccessTokenBundle]:
+    # Replacing the complete JSON is atomic. Callers doing a read/modify/write
+    # or compare-and-swap additionally hold credential_file_guard.
+    path = resolve_token_path(path)
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8-sig") as handle:
+            wrapper = json.load(handle)
+        ciphertext = str(wrapper.get("ciphertext") or "")
+        plain = _unprotect(base64.b64decode(ciphertext))
+        data = json.loads(plain.decode("utf-8"))
+        legacy_revision = "legacy-" + hashlib.sha256(ciphertext.encode("ascii")).hexdigest()[:32]
+        return AccessTokenBundle(
+            access_token=str(data.get("access_token") or ""),
+            refresh_token=str(data.get("refresh_token") or ""),
+            app_id=str(data.get("app_id") or ""), app_secret=str(data.get("app_secret") or ""),
+            expires_at=float(data.get("expires_at") or 0),
+            oauth_state=str(data.get("oauth_state") or ""),
+            oauth_started_at=float(data.get("oauth_started_at") or 0),
+            oauth_poll_secret=str(data.get("oauth_poll_secret") or ""),
+            owner_username=str(data.get("owner_username") or ""),
+            auth_generation=str(data.get("auth_generation") or legacy_revision),
+            token_revision=str(data.get("token_revision") or legacy_revision),
+        )
+    except OfficialApiNotConfigured:
+        raise
+    except Exception as exc:
+        raise ApiTokenError("本机千川 Open API 令牌无法解密，请重新授权") from exc
+
+
+def _same_revision(left: Optional[AccessTokenBundle], right: Optional[AccessTokenBundle]) -> bool:
+    return bool(left and right and left.token_revision == right.token_revision
+                and left.auth_generation == right.auth_generation and left.app_id == right.app_id)
+
+
+def get_authorization_identity(path: Optional[str] = None, *, owner_username: Optional[str] = None) -> dict[str, str]:
+    owner, target = _authorization_context(path, owner_username=owner_username)
+    bundle = _load_saved_bundle(target)
+    _assert_current_owner(owner)
+    if bundle is None and path is None:
+        token = str(environment_value("QCSCKP_OE_ACCESS_TOKEN") or "").strip()
+        if token:
+            return {"owner_username": owner, "app_id": "",
+                    "auth_generation": "development-" + hashlib.sha256(token.encode()).hexdigest()[:32]}
+    return _public_identity(bundle, owner)
+
+
+@contextmanager
+def authorization_identity_guard(expected: Mapping[str, Any], path: Optional[str] = None):
+    """Keep the non-secret authorization generation stable during a DB commit.
+
+    Acquire before committing a local snapshot. No callbacks/network under
+    this guard; authorization-change callbacks always run after releasing it.
+    """
+    owner = str(expected.get("owner_username") or "").strip().casefold()
+    _assert_current_owner(owner)
+    target = resolve_token_path(path, owner_username=owner)
+    with credential_file_guard(target):
+        _assert_current_owner(owner)
+        bundle = _load_saved_bundle(target)
+        current = _public_identity(bundle, owner)
+        if bundle is None and path is None:
+            token = str(environment_value("QCSCKP_OE_ACCESS_TOKEN") or "").strip()
+            if token:
+                current["auth_generation"] = "development-" + hashlib.sha256(token.encode()).hexdigest()[:32]
+        if current != {field: str(expected.get(field) or "") for field in current}:
+            raise AuthorizationContextChanged()
+        yield
+
+
+def authorization_identity_is_current(expected: Mapping[str, Any], path: Optional[str] = None) -> bool:
+    try:
+        with authorization_identity_guard(expected, path):
+            return True
+    except (ApiTokenError, OfficialApiNotConfigured):
+        return False
+
+
+class DpapiTokenProvider:
+    def __init__(self, path: Optional[str] = None) -> None:
+        self._explicit_path = path
+
+    @property
+    def path(self) -> str:
+        return resolve_token_path(self._explicit_path)
+
+    def get_identity(self) -> dict[str, str]:
+        return get_authorization_identity(self._explicit_path)
+
+    def _refresh(self, bundle: AccessTokenBundle) -> AccessTokenBundle:
+        if not bundle.refresh_token or not bundle.app_id or not bundle.app_secret:
+            raise ApiTokenError("千川 Open API 令牌已过期，请重新授权")
+        body = urlencode(
+            {
+                "app_id": bundle.app_id,
+                "secret": bundle.app_secret,
+                "grant_type": "refresh_token",
+                "refresh_token": bundle.refresh_token,
+            }
+        ).encode("utf-8")
+        request = Request(
+            QIANCHUAN_OFFICIAL_API_BASE_URL + "/open_api/oauth2/refresh_token/",
+            data=body,
+            method="POST",
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        try:
+            with urlopen(request, timeout=30) as response:
+                result = json.loads(response.read().decode("utf-8"))
+        except Exception as exc:
+            raise ApiTokenError("千川 Open API 令牌刷新失败") from exc
+        if str(result.get("code") or "0") not in {"", "0"}:
+            raise ApiTokenError(
+                str(result.get("message") or "千川 Open API 令牌刷新失败"),
+                code=result.get("code"),
+                request_id=result.get("request_id"),
+            )
+        data = result.get("data") if isinstance(result.get("data"), dict) else result
+        expires_in = float(data.get("expires_in") or 0)
+        refreshed = replace(
+            bundle,
+            access_token=str(data.get("access_token") or ""),
+            refresh_token=str(data.get("refresh_token") or bundle.refresh_token),
+            app_id=bundle.app_id,
+            app_secret=bundle.app_secret,
+            expires_at=time.time() + expires_in if expires_in else 0,
+            oauth_state="",
+            oauth_started_at=0,
+            oauth_poll_secret="",
+        )
+        if not refreshed.access_token:
+            raise ApiTokenError("千川 Open API 刷新响应缺少 access_token")
+        return refreshed
+
+    def get_token(self, *, force_refresh: bool = False,
+                  rejected_token_revision: Optional[str] = None) -> AccessTokenBundle:
+        owner, target = _authorization_context(self._explicit_path)
+        observed = _load_saved_bundle(target)
+        observed_revision = rejected_token_revision or (observed.token_revision if observed else "")
+        # All providers for this file coalesce refreshes, while user credential
+        # edits remain possible during HTTP. Every returned result uses CAS.
+        with _operation_lock("refresh", target):
+            with credential_file_guard(target):
+                _assert_current_owner(owner)
+                bundle = _load_saved_bundle(target)
+                if bundle is None:
+                    raise OfficialApiNotConfigured("千川官方 API 尚未配置，请保存应用并完成授权")
+                _public_identity(bundle, owner)
+                if bundle.usable() and (not force_refresh or bundle.token_revision != observed_revision):
+                    return replace(bundle, owner_username=owner)
+                if bundle.oauth_state and time.time() - bundle.oauth_started_at <= 10 * 60:
+                    raise ApiTokenError("千川官方授权正在进行，请等待授权完成", code="authorization_pending")
+            try:
+                refreshed = self._refresh(bundle)
+            except ApiTokenError:
+                with credential_file_guard(target):
+                    current = _load_saved_bundle(target)
+                    _assert_current_owner(owner)
+                    if not _same_revision(bundle, current):
+                        if current and current.usable():
+                            return replace(current, owner_username=owner)
+                        raise AuthorizationContextChanged() from None
+                raise
+            with credential_file_guard(target):
+                current = _load_saved_bundle(target)
+                if not _same_revision(bundle, current):
+                    _assert_current_owner(owner)
+                    if current and current.usable():
+                        return replace(current, owner_username=owner)
+                    raise AuthorizationContextChanged()
+                # Finish only the file/identity that initiated this refresh.
+                # A later tool-account switch cannot redirect the write to B.
+                committed = _save_token_bundle_locked(refreshed, target, owner)
+            _assert_current_owner(owner)
+            return committed
+
+
+class EnvironmentTokenProvider:
+    """仅供开发联调；环境变量不会写入日志或数据库。"""
+
+    def get_token(self, *, force_refresh: bool = False,
+                  rejected_token_revision: Optional[str] = None) -> AccessTokenBundle:
+        token = str(environment_value("QCSCKP_OE_ACCESS_TOKEN") or "").strip()
+        if not token:
+            raise OfficialApiNotConfigured("未注入 QCSCKP_OE_ACCESS_TOKEN")
+        try:
+            expires_at = float(environment_value("QCSCKP_OE_EXPIRES_AT") or 0)
+        except ValueError:
+            expires_at = 0
+        bundle = AccessTokenBundle(access_token=token, expires_at=expires_at,
+                                   owner_username=_current_owner(),
+                                   auth_generation="development-" + hashlib.sha256(token.encode()).hexdigest()[:32])
+        if force_refresh or not bundle.usable():
+            raise ApiTokenError("开发注入的千川 access_token 已失效，请重新注入")
+        return bundle
+
+
+class DefaultTokenProvider:
+    def __init__(self) -> None:
+        self._env = EnvironmentTokenProvider()
+        self._dpapi = DpapiTokenProvider()
+
+    def get_identity(self) -> dict[str, str]:
+        return get_authorization_identity(self._dpapi._explicit_path)
+
+    def get_token(self, *, force_refresh: bool = False, rejected_token_revision: Optional[str] = None) -> AccessTokenBundle:
+        # 用户在页面保存的 DPAPI 配置始终优先。环境变量只是未配置
+        # 本机文件时的开发联调后备，避免用户授权后仍读到旧令牌。
+        if os.path.isfile(self._dpapi.path):
+            return self._dpapi.get_token(force_refresh=force_refresh, rejected_token_revision=rejected_token_revision)
+        if str(environment_value("QCSCKP_OE_ACCESS_TOKEN") or "").strip():
+            return self._env.get_token(force_refresh=force_refresh)
+        return self._dpapi.get_token(force_refresh=force_refresh, rejected_token_revision=rejected_token_revision)
+
+
+def _configuration_status(bundle: Optional[AccessTokenBundle], owner: str, *, unreadable: bool = False) -> dict[str, Any]:
+    return {
+        "configured": bool(bundle and bundle.app_id and bundle.app_secret),
+        "authorized": bool(bundle and bundle.usable()),
+        "app_id": bundle.app_id if bundle else "",
+        "app_secret_saved": bool(bundle and bundle.app_secret),
+        "authorization_pending": bool(bundle and bundle.oauth_state and bundle.oauth_started_at
+                                      and time.time() - bundle.oauth_started_at <= 10 * 60),
+        "expires_at": bundle.expires_at if bundle else 0,
+        "oauth_callback_url": "", "oauth_capture_mode": "browser_navigation",
+        "oauth_callback_managed_by_platform": True,
+        "requires_reentry": unreadable,
+        "configuration_error": "unreadable_local_encryption" if unreadable else "",
+        "authorization_identity": _public_identity(bundle, owner),
+    }
+
+
+def api_configuration_status(path: Optional[str] = None, *, owner_username: Optional[str] = None) -> dict[str, Any]:
+    """Public metadata only: never return a token, secret or credential path."""
+    owner, target = _authorization_context(path, owner_username=owner_username)
+    try:
+        bundle = _load_saved_bundle(target)
+        _assert_current_owner(owner)
+        return _configuration_status(bundle, owner)
+    except AuthorizationContextChanged:
+        raise
+    except ApiTokenError:
+        return _configuration_status(None, owner, unreadable=True)
+
+
+def save_api_credentials(app_id: Any, app_secret: Any, path: Optional[str] = None, *, owner_username: Optional[str] = None) -> dict[str, Any]:
+    owner, target = _authorization_context(path, owner_username=owner_username)
+    aid = str(app_id or "").strip()
+    secret = str(app_secret or "").strip()
+    if not aid.isdigit() or len(aid) < 6:
+        raise ValueError("App ID 格式不正确")
+    with credential_file_guard(target):
+        _assert_current_owner(owner)
+        try:
+            existing = _load_saved_bundle(target)
+            if existing and existing.owner_username and existing.owner_username != owner:
+                if not secret:
+                    raise AuthorizationContextChanged()
+                existing = None
+        except ApiTokenError:
+            if not secret:
+                raise
+            existing = None
+        if not secret and existing and existing.app_id == aid:
+            secret = existing.app_secret
+        if len(secret) < 6:
+            raise ValueError("请输入 App Secret")
+        same = bool(existing and existing.app_id == aid and existing.app_secret == secret)
+        previous = _public_identity(existing, owner)
+        if same:
+            # Re-saving identical credentials is not a new grant and must not
+            # clear pending OAuth state or invalidate its in-flight code swap.
+            return {**_configuration_status(existing, owner),
+                    "previous_authorization_identity": previous,
+                    "authorization_changed": False, "authorization_event": "credentials_saved"}
+        committed = _save_token_bundle_locked(AccessTokenBundle(
+            access_token=existing.access_token if same else "",
+            refresh_token=existing.refresh_token if same else "",
+            app_id=aid, app_secret=secret, expires_at=existing.expires_at if same else 0,
+            auth_generation=existing.auth_generation if same else secrets.token_hex(16),
+        ), target, owner)
+        identity = _public_identity(committed, owner)
+        return {**_configuration_status(committed, owner),
+                "previous_authorization_identity": previous,
+                "authorization_changed": previous != identity,
+                "authorization_event": "credentials_saved"}
+
+
+def _relay_json_request(
+    endpoint: str,
+    payload: dict[str, Any],
+    *,
+    base_url: str,
+    timeout: int = 15,
+) -> tuple[int, dict[str, Any]]:
+    """旧版中转协议兼容助手；正式授权流程不再使用固定中转地址。"""
+    normalized_base = str(base_url or "").strip().rstrip("/")
+    if not normalized_base.startswith("https://"):
+        raise ValueError("授权中转服务必须使用 HTTPS")
+    request = Request(
+        normalized_base + endpoint,
+        data=json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Cache-Control": "no-store",
+            # Cloudflare may challenge urllib's default Python-urllib user agent.
+            # Use an explicit desktop-client identity so OAuth session creation and
+            # polling follow the same path as other supported HTTP clients.
+            "User-Agent": "QCSCKP-Desktop/0.1.49",
+        },
+    )
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            status = int(getattr(response, "status", 200) or 200)
+            result = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        try:
+            result = json.loads(exc.read().decode("utf-8"))
+        except Exception:
+            result = {}
+        raise ApiTokenError(
+            str(result.get("message") or "千川授权中转服务暂不可用"),
+            code=exc.code,
+        ) from exc
+    except (URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as exc:
+        raise ApiTokenError("千川授权中转服务连接失败，请检查网络后重试") from exc
+    if not isinstance(result, dict):
+        raise ApiTokenError("千川授权中转服务响应格式异常")
+    return status, result
+
+
+def begin_api_authorization(
+    path: Optional[str] = None,
+    *,
+    owner_username: Optional[str] = None,
+    relay_request: Optional[
+        Callable[[str, dict[str, Any]], tuple[int, dict[str, Any]]]
+    ] = None,
+) -> dict[str, Any]:
+    owner, path = _authorization_context(path, owner_username=owner_username)
+    with credential_file_guard(path):
+        _assert_current_owner(owner)
+        bundle = _load_saved_bundle(path)
+        _public_identity(bundle, owner)
+    if not bundle or not bundle.app_id or not bundle.app_secret:
+        raise OfficialApiNotConfigured("请先保存 App ID 和 App Secret")
+    state = secrets.token_urlsafe(24)
+    poll_secret = ""
+    started = time.time()
+    if relay_request is not None:
+        # 仅供旧版迁移测试。生产路径监听授权浏览器导航，不访问固定中转域名。
+        poll_secret = secrets.token_urlsafe(32)
+        status, relay = relay_request(
+            "/oauth/session",
+            {"state": state, "poll_secret": poll_secret},
+        )
+        if status not in {200, 201} or not relay.get("success"):
+            raise ApiTokenError(str(relay.get("message") or "创建千川授权会话失败"))
+    with credential_file_guard(path):
+        _assert_current_owner(owner)
+        if not _same_revision(bundle, _load_saved_bundle(path)):
+            raise AuthorizationContextChanged()
+        committed = _save_token_bundle_locked(replace(
+            bundle, oauth_state=state, oauth_started_at=started, oauth_poll_secret=poll_secret,
+        ), path, owner)
+    return {
+        "url": QIANCHUAN_OAUTH_PAGE
+        + "?"
+        + urlencode({"app_id": bundle.app_id, "state": state, "material_auth": "1"}),
+        "started_at": started,
+        "state": state,
+        "authorization_identity": _public_identity(committed, owner),
+    }
+
+
+def poll_api_authorization(
+    path: Optional[str] = None,
+    *,
+    owner_username: Optional[str] = None,
+    relay_request: Optional[
+        Callable[[str, dict[str, Any]], tuple[int, dict[str, Any]]]
+    ] = None,
+) -> dict[str, Any]:
+    """领取授权浏览器捕获的一次性授权码，并使用本机密钥换取令牌。"""
+    owner, path = _authorization_context(path, owner_username=owner_username)
+    bundle = _load_saved_bundle(path)
+    _public_identity(bundle, owner)
+    if not bundle or not bundle.app_id or not bundle.app_secret:
+        raise OfficialApiNotConfigured("请先保存 App ID 和 App Secret")
+    if (
+        not bundle.oauth_state
+        or not bundle.oauth_started_at
+    ):
+        if bundle.usable():
+            return {"completed": True, "authorized": True}
+        raise ApiTokenError("没有等待中的授权，请点击保存并授权")
+    if time.time() - bundle.oauth_started_at > 10 * 60:
+        raise ApiTokenError("授权请求已过期，请重新点击保存并授权")
+    if relay_request is not None and bundle.oauth_poll_secret:
+        status, relay = relay_request(
+            "/oauth/result",
+            {"state": bundle.oauth_state, "poll_secret": bundle.oauth_poll_secret},
+        )
+        relay_status = str(relay.get("status") or "").lower()
+        if status == 202 or relay_status == "pending":
+            return {"completed": False, "authorized": False}
+        if status != 200 or not relay.get("success") or relay_status != "ready":
+            raise ApiTokenError(str(relay.get("message") or "读取千川授权结果失败"))
+        auth_code = str(relay.get("auth_code") or "").strip()
+        returned_state = str(relay.get("state") or "").strip()
+        if not auth_code or not returned_state:
+            raise ApiTokenError("千川授权结果不完整，请重新授权")
+        callback = urlencode({"auth_code": auth_code, "state": returned_state})
+    else:
+        browser_error = _peek_oauth_browser_error(bundle.oauth_state)
+        if browser_error:
+            raise ApiTokenError(browser_error)
+        callback = _peek_oauth_browser_callback(bundle.oauth_state)
+        if not callback:
+            return {"completed": False, "authorized": False}
+    _assert_current_owner(owner)
+    exchange_authorization_code(callback, path, owner_username=owner)
+    _discard_oauth_browser_callback(bundle.oauth_state)
+    return {"completed": True, "authorized": True}
+
+
+def exchange_authorization_code(authorization_callback: Any, path: Optional[str] = None, *, owner_username: Optional[str] = None) -> AccessTokenBundle:
+    owner, target = _authorization_context(path, owner_username=owner_username)
+    with _operation_lock("exchange", target):
+        return _exchange_authorization_code_locked(authorization_callback, target, owner)
+
+
+def _exchange_authorization_code_locked(
+    authorization_callback: Any,
+    path: str,
+    owner: str,
+) -> AccessTokenBundle:
+    callback = str(authorization_callback or "").strip()
+    query = urlparse(callback).query if "://" in callback else callback.lstrip("?")
+    params = parse_qs(query, keep_blank_values=True)
+    code = str((params.get("auth_code") or [""])[0]).strip()
+    returned_state = str((params.get("state") or [""])[0]).strip()
+    if not code or len(code) < 6 or not returned_state:
+        raise ValueError("授权回调缺少 auth_code 或 state")
+    with credential_file_guard(path):
+        _assert_current_owner(owner)
+        bundle = _load_saved_bundle(path)
+        _public_identity(bundle, owner)
+    if not bundle or not bundle.app_id or not bundle.app_secret:
+        raise OfficialApiNotConfigured("请先保存 App ID 和 App Secret")
+    if (
+        not bundle.oauth_state
+        or not bundle.oauth_started_at
+        or time.time() - bundle.oauth_started_at > 10 * 60
+    ):
+        raise ApiTokenError("授权请求已过期，请重新打开官方授权页")
+    if not secrets.compare_digest(returned_state, bundle.oauth_state):
+        raise ApiTokenError("授权回调 state 校验失败，请重新授权")
+    body = urlencode(
+        {
+            "app_id": bundle.app_id,
+            "secret": bundle.app_secret,
+            "auth_code": code,
+        }
+    ).encode("utf-8")
+    request = Request(
+        QIANCHUAN_OFFICIAL_API_BASE_URL + "/open_api/oauth2/access_token/",
+        data=body,
+        method="POST",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    try:
+        with urlopen(request, timeout=30) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        with credential_file_guard(path):
+            _assert_current_owner(owner)
+            if not _same_revision(bundle, _load_saved_bundle(path)):
+                raise AuthorizationContextChanged() from None
+        raise ApiTokenError("千川 Open API 授权码交换失败") from exc
+    with credential_file_guard(path):
+        _assert_current_owner(owner)
+        if not _same_revision(bundle, _load_saved_bundle(path)):
+            raise AuthorizationContextChanged()
+    if str(result.get("code") or "0") not in {"", "0"}:
+        raise ApiTokenError(
+            str(result.get("message") or "千川 Open API 授权失败"),
+            code=result.get("code"),
+            request_id=result.get("request_id"),
+        )
+    data = result.get("data") if isinstance(result.get("data"), dict) else result
+    expires_in = float(data.get("expires_in") or 0)
+    authorized = AccessTokenBundle(
+        access_token=str(data.get("access_token") or ""),
+        refresh_token=str(data.get("refresh_token") or ""),
+        app_id=bundle.app_id,
+        app_secret=bundle.app_secret,
+        expires_at=time.time() + expires_in if expires_in else 0,
+        auth_generation=secrets.token_hex(16),
+    )
+    if not authorized.access_token or not authorized.refresh_token:
+        raise ApiTokenError("千川 Open API 授权响应缺少令牌")
+    with credential_file_guard(path):
+        _assert_current_owner(owner)
+        if not _same_revision(bundle, _load_saved_bundle(path)):
+            raise AuthorizationContextChanged()
+        return _save_token_bundle_locked(authorized, path, owner)
+
+
+def clear_api_configuration(path: Optional[str] = None, *, owner_username: Optional[str] = None) -> None:
+    owner, target = _authorization_context(path, owner_username=owner_username)
+    with credential_file_guard(target):
+        _assert_current_owner(owner)
+        if os.path.isfile(target):
+            os.remove(target)
+
+
+def clear_api_tokens_keep_credentials(path: Optional[str] = None, *, owner_username: Optional[str] = None) -> None:
+    owner, target = _authorization_context(path, owner_username=owner_username)
+    with credential_file_guard(target):
+        _assert_current_owner(owner)
+        bundle = _load_saved_bundle(target)
+        _public_identity(bundle, owner)
+        if bundle is None:
+            return
+        _save_token_bundle_locked(AccessTokenBundle(
+            access_token="", app_id=bundle.app_id, app_secret=bundle.app_secret,
+            auth_generation=secrets.token_hex(16),
+        ), target, owner)
+
+
+_DEFAULT_PROVIDER: Optional[DefaultTokenProvider] = None
+_DEFAULT_LOCK = threading.Lock()
+
+
+def get_default_token_provider() -> DefaultTokenProvider:
+    global _DEFAULT_PROVIDER
+    with _DEFAULT_LOCK:
+        if _DEFAULT_PROVIDER is None:
+            _DEFAULT_PROVIDER = DefaultTokenProvider()
+        return _DEFAULT_PROVIDER

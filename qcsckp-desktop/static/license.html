@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>千川素材看盘工具 · 在线授权</title>
+    <style>
+        * { box-sizing: border-box; }
+        html, body { width: 100%; height: 100%; margin: 0; }
+        body {
+            display: grid;
+            place-items: center;
+            padding: 24px;
+            color: #e2e8f0;
+            background:
+                radial-gradient(circle at 20% 10%, rgba(14,165,233,.14), transparent 36%),
+                radial-gradient(circle at 84% 86%, rgba(99,102,241,.13), transparent 34%),
+                #08111f;
+            font-family: Inter, "Microsoft YaHei", system-ui, sans-serif;
+        }
+        .card {
+            width: min(460px, 100%);
+            overflow: hidden;
+            border: 1px solid rgba(71,85,105,.88);
+            border-radius: 20px;
+            background: linear-gradient(165deg, rgba(30,41,59,.98), rgba(15,23,42,.99));
+            box-shadow: 0 28px 70px rgba(2,6,23,.55);
+        }
+        .head { padding: 28px 30px 20px; border-bottom: 1px solid rgba(51,65,85,.7); }
+        .brand { display: flex; align-items: center; gap: 13px; }
+        .mark {
+            width: 44px; height: 44px; display: grid; place-items: center;
+            border-radius: 13px; color: #7dd3fc; background: rgba(14,165,233,.14);
+            border: 1px solid rgba(56,189,248,.3); font-size: 22px; font-weight: 800;
+        }
+        h1 { margin: 0; color: #f8fafc; font-size: 21px; }
+        .subtitle { margin: 6px 0 0; color: #94a3b8; font-size: 12px; line-height: 1.6; }
+        .body { padding: 24px 30px 30px; }
+        .status {
+            display: flex; align-items: center; gap: 10px; min-height: 48px;
+            padding: 12px 14px; margin-bottom: 18px; border-radius: 12px;
+            color: #cbd5e1; background: rgba(15,23,42,.7); border: 1px solid #334155;
+            font-size: 13px; line-height: 1.55;
+        }
+        .dot { width: 9px; height: 9px; flex: none; border-radius: 50%; background: #38bdf8; box-shadow: 0 0 12px rgba(56,189,248,.7); }
+        .status.error { color: #fecaca; border-color: rgba(248,113,113,.45); background: rgba(127,29,29,.12); }
+        .status.error .dot { background: #f87171; box-shadow: 0 0 12px rgba(248,113,113,.65); }
+        .status.ok { color: #bbf7d0; border-color: rgba(74,222,128,.38); background: rgba(20,83,45,.14); }
+        .status.ok .dot { background: #4ade80; box-shadow: 0 0 12px rgba(74,222,128,.65); }
+        label { display: block; margin-bottom: 8px; color: #cbd5e1; font-size: 13px; font-weight: 650; }
+        input {
+            width: 100%; height: 46px; padding: 0 13px; border: 1px solid #475569;
+            border-radius: 11px; outline: none; color: #f8fafc; background: #0f172a;
+            font-size: 14px; letter-spacing: .02em;
+        }
+        input:focus { border-color: #38bdf8; box-shadow: 0 0 0 3px rgba(56,189,248,.12); }
+        .actions { display: flex; gap: 10px; margin-top: 16px; }
+        button {
+            min-height: 44px; padding: 0 18px; border: 1px solid #475569; border-radius: 11px;
+            color: #e2e8f0; background: #1e293b; cursor: pointer; font-size: 13px; font-weight: 700;
+        }
+        button.primary { flex: 1; color: #082f49; border-color: #38bdf8; background: #38bdf8; }
+        button:hover { filter: brightness(1.08); }
+        button:disabled { cursor: not-allowed; opacity: .55; filter: none; }
+        .hint { margin: 14px 0 0; color: #64748b; font-size: 11px; line-height: 1.65; }
+        .machine-info { margin-top: 13px; padding: 10px 12px; border: 1px solid #334155; border-radius: 10px; color: #94a3b8; background: rgba(15,23,42,.55); font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+        .machine-info strong { color: #cbd5e1; }
+        .connection-report { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; line-height: 1.65; color: #cbd5e1; margin-top: 12px; }
+        .license-summary { display: none; margin-top: 14px; color: #94a3b8; font-size: 12px; line-height: 1.7; }
+        .license-summary strong { color: #e2e8f0; }
+        .contact-link { width: 100%; margin-top: 12px; background: transparent; }
+        .contact-panel { display: none; margin-top: 14px; padding: 12px; border: 1px solid #334155; border-radius: 12px; background: #fff; text-align: center; }
+        .contact-panel.show { display: block; }
+        .contact-panel img { display: block; max-width: 100%; max-height: 430px; margin: auto; object-fit: contain; }
+        .contact-message { color: #64748b; font-size: 12px; line-height: 1.6; }
+    </style>
+</head>
+<body>
+    <section class="card" aria-labelledby="softwareName">
+        <header class="head">
+            <div class="brand">
+                <div class="mark" aria-hidden="true">Q</div>
+                <div>
+                    <h1 id="softwareName">千川素材看盘工具</h1>
+                    <p class="subtitle">在线激活验证 · 授权协议 v2</p>
+                </div>
+            </div>
+        </header>
+        <main class="body">
+            <div class="status" id="statusBox" role="status" aria-live="polite">
+                <span class="dot" aria-hidden="true"></span>
+                <span id="statusText">正在检查本机授权…</span>
+            </div>
+            <form id="activationForm" hidden>
+                <label for="activationCode">激活码</label>
+                <input id="activationCode" name="activation_code" type="text" maxlength="256" autocomplete="off" placeholder="请输入周卡、月卡、年卡或永久激活码">
+                <div class="actions">
+                    <button class="primary" id="activateButton" type="submit">立即激活</button>
+                    <button id="retryButton" type="button">重新验证</button>
+                </div>
+                <p class="hint">软件只需激活码，不需要账号密码。原激活码仅提交给授权服务器，并使用 Windows DPAPI 或 macOS Keychain 加密保存在本机；不会写入浏览器、明文配置或普通日志。</p>
+            </form>
+            <div id="runtimeEntryPanel" hidden>
+                <p class="hint">本机授权已通过。当前是主程序启动异常，不需要重新激活、解绑或更换激活码。</p>
+                <button class="contact-link" id="retryEntryButton" type="button">重试进入软件</button>
+            </div>
+            <div class="machine-info"><strong>本机机器码：</strong><span id="machineCode">正在读取…</span></div>
+            <div class="license-summary" id="licenseSummary"></div>
+            <button class="contact-link" id="repairConnectionButton" type="button">诊断并修复连接</button>
+            <div class="connection-report" id="connectionReport" role="status" hidden></div>
+            <button class="contact-link" id="contactButton" type="button" aria-expanded="false">联系作者</button>
+            <div class="contact-panel" id="contactPanel">
+                <img id="contactImage" alt="联系作者二维码">
+                <div class="contact-message" id="contactMessage">正在读取联系方式…</div>
+            </div>
+        </main>
+    </section>
+    <script>
+        const statusBox = document.getElementById('statusBox');
+        const statusText = document.getElementById('statusText');
+        const form = document.getElementById('activationForm');
+        const input = document.getElementById('activationCode');
+        const activateButton = document.getElementById('activateButton');
+        const retryButton = document.getElementById('retryButton');
+        const runtimeEntryPanel = document.getElementById('runtimeEntryPanel');
+        const retryEntryButton = document.getElementById('retryEntryButton');
+        const repairConnectionButton = document.getElementById('repairConnectionButton');
+        const connectionReport = document.getElementById('connectionReport');
+        const machineCode = document.getElementById('machineCode');
+        const summary = document.getElementById('licenseSummary');
+        const contactButton = document.getElementById('contactButton');
+        const contactPanel = document.getElementById('contactPanel');
+        const contactImage = document.getElementById('contactImage');
+        const contactMessage = document.getElementById('contactMessage');
+        let api = null;
+        let busy = false;
+
+        function setStatus(message, tone = '') {
+            statusText.textContent = message || '授权状态未知';
+            statusBox.className = 'status' + (tone ? ' ' + tone : '');
+        }
+
+        function showMachineCode(state) {
+            machineCode.textContent = String(state && state.machine_code || '未取得');
+        }
+
+        function showLicenseInfo(license) {
+            if (!license) { summary.style.display = 'none'; return; }
+            summary.style.display = 'block';
+            summary.innerHTML = '';
+            const line = document.createElement('div');
+            const expiry = license.is_permanent ? '永久有效' : String(license.expires_at || '—');
+            line.innerHTML = '<strong>' + String(license.license_type_label || '软件授权') + '</strong>'
+                + ' · 到期时间：' + expiry;
+            summary.appendChild(line);
+        }
+
+        function setBusy(value, label) {
+            busy = !!value;
+            activateButton.disabled = busy;
+            retryButton.disabled = busy;
+            retryEntryButton.disabled = busy;
+            repairConnectionButton.disabled = busy;
+            input.disabled = busy;
+            activateButton.textContent = busy ? (label || '处理中…') : '立即激活';
+        }
+
+        function waitForApi() {
+            return new Promise((resolve) => {
+                let count = 0;
+                const timer = setInterval(() => {
+                    const bridge = window.pywebview && window.pywebview.api;
+                    if (bridge && typeof bridge.getLicenseBootstrapStatus === 'function') {
+                        clearInterval(timer); resolve(bridge); return;
+                    }
+                    if (++count >= 150) { clearInterval(timer); resolve(null); }
+                }, 100);
+            });
+        }
+
+        async function enterApplication(state) {
+            showLicenseInfo(state && state.license);
+            form.hidden = true;
+            runtimeEntryPanel.hidden = true;
+            setStatus((state && state.message ? state.message : '授权有效') + '，正在进入软件…', 'ok');
+            let entered;
+            try {
+                entered = await api.enterLicensedApplication();
+            } catch (cause) {
+                const error = new Error(cause && cause.message ? cause.message : '本地主程序启动失败');
+                error.authorized = !!(state && state.authorized);
+                throw error;
+            }
+            if (!entered || !entered.success) {
+                const error = new Error((entered && entered.message) || '主程序启动失败');
+                error.authorized = !!(state && state.authorized) && (!entered || entered.authorized !== false);
+                throw error;
+            }
+            window.location.replace('index.html');
+        }
+
+        function showEntryError(error, fallback) {
+            const detail = error && error.message ? error.message : fallback;
+            const authorized = !!(error && error.authorized);
+            runtimeEntryPanel.hidden = !authorized;
+            repairConnectionButton.hidden = authorized;
+            form.hidden = authorized;
+            setStatus(authorized ? '授权已通过，但主程序启动失败。无需重新输入激活码。' + detail : detail, 'error');
+        }
+
+        async function checkAuthorization() {
+            if (busy) return;
+            setBusy(true, '正在验证…');
+            form.hidden = true;
+            runtimeEntryPanel.hidden = true;
+            repairConnectionButton.hidden = false;
+            setStatus('正在连接授权服务器验证本机设备…');
+            try {
+                api = api || await waitForApi();
+                if (!api) throw new Error('无法连接本地授权模块，请重新启动软件');
+                const state = await api.getLicenseBootstrapStatus();
+                showMachineCode(state);
+                document.getElementById('softwareName').textContent = state.software_name || '千川素材看盘工具';
+                if (state.authorized) {
+                    await enterApplication(state);
+                    return;
+                }
+                showLicenseInfo(state.license);
+                setStatus(state.message || '请输入激活码', state.network_error ? 'error' : 'error');
+                form.hidden = false;
+                if (!state.network_error) input.focus();
+            } catch (error) {
+                showEntryError(error, '授权验证失败，请重试');
+            } finally {
+                setBusy(false);
+            }
+        }
+
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            if (busy) return;
+            const code = input.value.trim();
+            if (!code) { setStatus('请输入激活码', 'error'); input.focus(); return; }
+            setBusy(true, '正在激活…');
+            setStatus('正在提交激活码并绑定当前设备…');
+            try {
+                const state = await api.activateOnlineLicense(code);
+                showMachineCode(state);
+                input.value = '';
+                if (!state || !state.authorized) {
+                    setStatus((state && state.message) || '激活失败，请重试', 'error');
+                    return;
+                }
+                await enterApplication(state);
+            } catch (error) {
+                showEntryError(error, '激活失败，请重试');
+            } finally {
+                setBusy(false);
+            }
+        });
+        retryButton.addEventListener('click', checkAuthorization);
+        retryEntryButton.addEventListener('click', checkAuthorization);
+        repairConnectionButton.addEventListener('click', async () => {
+            if (busy) return;
+            setBusy(true, '正在检测…');
+            repairConnectionButton.textContent = '正在检测安全连接…';
+            connectionReport.hidden = false;
+            connectionReport.textContent = '正在检测授权连接并尝试安全恢复，通常需要10～40秒。不会清除激活凭证、关闭证书校验或修改系统网络设置。';
+            setStatus('正在诊断授权连接…');
+            let recheck = false;
+            try {
+                api = api || await waitForApi();
+                if (!api || typeof api.diagnoseLicenseConnection !== 'function') throw new Error('本地诊断模块未就绪，请重启软件');
+                const result = await api.diagnoseLicenseConnection();
+                const labels = { default: '默认HTTPS', bundled_ca: '补充内置可信证书', windows_https: 'Windows系统HTTPS' };
+                const lines = (result.steps || []).map(step => (labels[step.mode] || step.mode) + '：' + step.message);
+                if (result.probe_id) lines.push('诊断编号：' + result.probe_id);
+                if (result.log_path) lines.push('脱敏日志：' + result.log_path);
+                connectionReport.textContent = lines.join('\n') || result.message;
+                setStatus(result.message, result.success ? 'ok' : 'error');
+                // A credential-free 401 only verifies transport, never access.
+                // Only the normal server-side license check can open the app.
+                recheck = !!result.success;
+            } catch (error) {
+                setStatus(error && error.message ? error.message : '诊断未完成，请重试；本地凭证未改动', 'error');
+            } finally {
+                repairConnectionButton.textContent = '诊断并修复连接';
+                setBusy(false);
+            }
+            if (recheck) await checkAuthorization();
+        });
+        contactButton.addEventListener('click', async () => {
+            if (contactPanel.classList.contains('show')) {
+                contactPanel.classList.remove('show');
+                contactButton.setAttribute('aria-expanded', 'false');
+                contactButton.textContent = '联系作者';
+                return;
+            }
+            contactPanel.classList.add('show');
+            contactButton.setAttribute('aria-expanded', 'true');
+            contactButton.textContent = '收起联系方式';
+            contactImage.style.display = 'none';
+            contactMessage.textContent = '正在读取联系方式…';
+            try {
+                api = api || await waitForApi();
+                if (!api || typeof api.getContactApiUrl !== 'function') throw new Error('联系接口未就绪');
+                const endpoint = await api.getContactApiUrl();
+                const url = String(endpoint && endpoint.url || '');
+                if (!/^http:\/\/127\.0\.0\.1:\d+\/api\/contact$/.test(url)) throw new Error('联系接口地址无效');
+                const response = await fetch(url, { cache: 'no-store' });
+                const config = await response.json();
+                const imageUrl = String(config.display_image_url || config.qr_image_url || '');
+                if (!imageUrl) throw new Error(config.message || '联系方式暂未配置');
+                contactImage.onload = () => { contactImage.style.display = 'block'; contactMessage.textContent = ''; };
+                contactImage.onerror = () => { contactMessage.textContent = '联系方式图片加载失败，请稍后重试'; };
+                contactImage.src = imageUrl;
+            } catch (error) {
+                contactMessage.textContent = error && error.message ? error.message : '暂时无法读取联系方式';
+            }
+        });
+        window.addEventListener('pywebviewready', checkAuthorization);
+        if (window.pywebview && window.pywebview.api) checkAuthorization();
+    </script>
+</body>
+</html>
